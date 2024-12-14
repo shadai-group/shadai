@@ -213,7 +213,7 @@ class Session:
             logger.error("Ingestion failed: %s", str(e))
             raise IngestionError(f"Failed to ingest files: {str(e)}") from e
 
-    async def query(self, query: str, display: bool = False) -> str:
+    async def query(self, query: str, display_in_console: bool = False) -> str:
         """Query the processed data."""
         console.print("\n[bold blue]🔍 Processing Query[/]")
         console.print(Panel(query, title="Query"))
@@ -224,7 +224,7 @@ class Session:
             with console.status("[bold yellow]Processing query...[/]", spinner="dots"):
                 response = await self._adapter.query(session_id=self._session_id, query=query)
 
-            if display:
+            if display_in_console:
                 console.print(Panel(response, title="Response", border_style="green"))
             console.print("[bold green]✓[/] Query processed successfully")
             return response
