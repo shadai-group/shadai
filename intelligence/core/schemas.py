@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -30,6 +30,8 @@ class JobType(str, Enum):
     DELETE = "delete"
     QUERY = "query"
     DELETE_SESSION = "delete_session"
+    SUMMARY = "summary"
+    ARTICLE = "article"
 
 
 class JobResponse(BaseModel):
@@ -40,4 +42,4 @@ class JobResponse(BaseModel):
     session_id: str
     job_type: JobType
     status: JobStatus
-    data: Dict[str, Any]
+    result: Optional[str] = "in progress"

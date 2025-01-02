@@ -7,12 +7,16 @@ from urllib.parse import urljoin
 from dotenv import load_dotenv
 from requests import Session
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 from intelligence.core.decorators import retry_on_server_error
 from intelligence.core.exceptions import ConfigurationError, IntelligenceAPIError
-from intelligence.core.schemas import JobResponse, JobStatus, SessionCreate, SessionResponse
+from intelligence.core.schemas import (
+    JobResponse,
+    JobStatus,
+    SessionCreate,
+    SessionResponse,
+)
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -36,12 +40,16 @@ class IntelligenceAdapter:
         self.base_url = "https://api.intel.shadai.ai"
         self.api_key = os.getenv("INTELLIGENCE_API_KEY")
         if not self.api_key:
-            raise ConfigurationError("INTELLIGENCE_API_KEY environment variable not set")
+            raise ConfigurationError(
+                "INTELLIGENCE_API_KEY environment variable not set"
+            )
         self._session = Session()
         self._session.headers.update({"ApiKey": self.api_key})
 
     @retry_on_server_error()
-    async def _make_request(self, method: str, endpoint: str, **kwargs: Any) -> Dict[str, Any]:
+    async def _make_request(
+        self, method: str, endpoint: str, **kwargs: Any
+    ) -> Dict[str, Any]:
         """Make HTTP request with retry logic and error handling."""
         url = urljoin(self.base_url, endpoint)
         kwargs["timeout"] = kwargs.get("timeout", 25)
@@ -61,7 +69,9 @@ class IntelligenceAdapter:
             logger.error("Failed to get job status: %s", str(e))
             raise IntelligenceAPIError(f"Failed to get job status: {str(e)}") from e
 
-    async def _poll_job(self, job_id: str, interval: float) -> AsyncGenerator[JobResponse, None]:
+    async def _poll_job(
+        self, job_id: str, interval: float
+    ) -> AsyncGenerator[JobResponse, None]:
         """
         Poll job status until completion.
 
@@ -96,14 +106,20 @@ class IntelligenceAdapter:
         """
         try:
             async with asyncio.timeout(timeout):
-                async for status in self._poll_job(job_id=job_id, interval=polling_interval):
+                async for status in self._poll_job(
+                    job_id=job_id, interval=polling_interval
+                ):
                     if status.status == JobStatus.COMPLETED:
-                        return status.data.get("response", "")
+                        return status.result
                     if status.status == JobStatus.FAILED:
-                        raise IntelligenceAPIError(f"Job {job_id} failed: Unknown error")
+                        raise IntelligenceAPIError(
+                            f"Job {job_id} failed: Unknown error"
+                        )
             return f"There was an error processing your request. Job ID: {job_id}"
         except asyncio.TimeoutError:
-            raise IntelligenceAPIError(f"Job {job_id} timed out after {timeout} seconds")
+            raise IntelligenceAPIError(
+                f"Job {job_id} timed out after {timeout} seconds"
+            )
 
     async def ingest(self, session_id: str) -> str:
         """
@@ -119,7 +135,9 @@ class IntelligenceAdapter:
             IntelligenceAPIError: If ingestion fails
         """
         try:
-            response = await self._make_request(method="POST", endpoint=f"/ingestion/{session_id}")
+            response = await self._make_request(
+                method="POST", endpoint=f"/ingestion/{session_id}"
+            )
             return await self._wait_for_job(
                 job_id=response.get("job_id"), polling_interval=10, timeout=600
             )
@@ -127,26 +145,68 @@ class IntelligenceAdapter:
             logger.error("Ingestion failed: %s", str(e))
             raise IntelligenceAPIError(f"Ingestion failed: {str(e)}") from e
 
-    async def query(self, session_id: str, query: str) -> str:
+    async def _handle_job_with_retries(
+        self,
+        job_response: dict,
+        operation_name: str,
+        max_retries: int = 3,
+        retry_delay: int = 5,
+        polling_interval: int = 5,
+        timeout: int = 180,
+    ) -> str:
         """
-        Execute query and wait for response.
+        Handle job execution with retries for empty responses.
 
         Args:
-            session_id (str): The session identifier
-            query (str): The query to execute
+            job_response: The response containing the job ID
+            operation_name: Name of the operation for logging
+            max_retries: Maximum number of retry attempts
+            retry_delay: Delay between retries in seconds
+            polling_interval: Interval for polling job status
+            timeout: Timeout for job completion
 
         Returns:
-            str: The query result
+            str: The job result
 
         Raises:
-            IntelligenceAPIError: If query execution fails
+            IntelligenceAPIError: If job fails or returns empty response after all retries
         """
+        for attempt in range(max_retries):
+            response = await self._wait_for_job(
+                job_id=job_response.get("job_id"),
+                polling_interval=polling_interval,
+                timeout=timeout,
+            )
+
+            if "empty response" not in response.lower():
+                return response
+
+            if attempt < max_retries - 1:
+                logger.warning(
+                    f"{operation_name} returned 'Empty response' on attempt {attempt + 1}/{max_retries}, retrying in {retry_delay} seconds..."
+                )
+                await asyncio.sleep(retry_delay)
+                continue
+
+        raise IntelligenceAPIError(
+            f"{operation_name} returned 'Empty response' after all retry attempts. The server might still be processing the data."
+        )
+
+    async def query(
+        self, session_id: str, query: str, max_retries: int = 3, retry_delay: int = 5
+    ) -> str:
+        """Execute query and wait for response."""
         try:
             job_response = await self._make_request(
-                method="GET", endpoint=f"/querying/{session_id}", params={"query": query}
+                method="GET",
+                endpoint=f"/querying/{session_id}",
+                params={"query": query},
             )
-            return await self._wait_for_job(
-                job_id=job_response.get("job_id"), polling_interval=5, timeout=180
+            return await self._handle_job_with_retries(
+                job_response=job_response,
+                operation_name="Query",
+                max_retries=max_retries,
+                retry_delay=retry_delay,
             )
         except Exception as e:
             logger.error("Query failed: %s", str(e))
@@ -155,28 +215,26 @@ class IntelligenceAdapter:
     async def create_session(
         self, type: Literal["light", "standard", "deep"], **kwargs: Any
     ) -> SessionResponse:
-        """Create new processing session."""
+        """
+        Create new processing session.
+        """
         session_create = SessionCreate(config_name=type, **kwargs)
-        console.status(f"\n[bold blue]🔧 Creating new {type} session...[/]",spinner="dots", spinner_style="blue")
+        console.print(f"[bold blue]🔧 Creating new {type} session...[/]")
+        response = await self._make_request(
+            method="POST", endpoint="/sessions", json=session_create.model_dump()
+        )
+        session_response = SessionResponse(**response)
+        table = Table(
+            title="Session Configuration", show_header=True, header_style="bold blue"
+        )
+        table.add_column("Parameter", style="cyan")
+        table.add_column("Value", style="green")
 
-        try:
-            response = await self._make_request(
-                method="POST", endpoint="/sessions", json=session_create.model_dump()
-            )
-            session_response = SessionResponse(**response)
-            table = Table(title="Session Configuration", show_header=True, header_style="bold blue")
-            table.add_column("Parameter", style="cyan")
-            table.add_column("Value", style="green")
-
-            config = session_response.model_dump()
-            for key, value in config.items():
-                table.add_row(key, str(value))
-
-            console.print(table)
-            return session_response
-        except Exception as e:
-            logger.error("Failed to create session: %s", str(e))
-            raise IntelligenceAPIError("Session creation failed") from e
+        config = session_response.model_dump()
+        for key, value in config.items():
+            table.add_row(key, str(value))
+        console.print(table)
+        return session_response
 
     async def get_session(self, session_id: str) -> SessionResponse:
         """Get session by ID.
@@ -191,7 +249,9 @@ class IntelligenceAdapter:
             IntelligenceAPIError: If session retrieval fails
         """
         try:
-            response = await self._make_request(method="GET", endpoint=f"/sessions/{session_id}")
+            response = await self._make_request(
+                method="GET", endpoint=f"/sessions/{session_id}"
+            )
             return SessionResponse.model_validate(response)
         except Exception as e:
             logger.error("Failed to get session: %s", str(e))
@@ -208,17 +268,59 @@ class IntelligenceAdapter:
             IntelligenceAPIError: If deletion fails
         """
         try:
-            response = await self._make_request(method="DELETE", endpoint=f"/sessions/{session_id}")
-            await self._wait_for_job(job_id=response.get("job_id"), polling_interval=5, timeout=180)
+            response = await self._make_request(
+                method="DELETE", endpoint=f"/sessions/{session_id}"
+            )
+            await self._wait_for_job(
+                job_id=response.get("job_id"), polling_interval=5, timeout=180
+            )
         except Exception as e:
             logger.error("Failed to delete session: %s", str(e))
             raise IntelligenceAPIError(f"Session deletion failed: {str(e)}") from e
 
-    async def _get_presigned_url(self, session_id: str) -> str:
+    async def _get_presigned_url(self, session_id: str, filename: str) -> str:
         """Generate a pre-signed URL for file upload."""
         try:
-            response = await self._make_request(method="GET", endpoint=f"/ingestion/{session_id}")
+            response = await self._make_request(
+                method="GET",
+                endpoint=f"/ingestion/{session_id}",
+                params={"filename": filename},
+            )
             return response.get("url")
         except Exception as e:
             logger.error("Failed to generate upload URL: %s", str(e))
-            raise IntelligenceAPIError(f"Failed to generate upload URL: {str(e)}") from e
+            raise IntelligenceAPIError(
+                f"Failed to generate upload URL: {str(e)}"
+            ) from e
+
+    async def _get_session_summary(self, session_id: str) -> str:
+        """Get session summary."""
+        try:
+            job_response = await self._make_request(
+                method="GET", endpoint=f"/sessions/{session_id}/summary"
+            )
+            return await self._handle_job_with_retries(
+                job_response=job_response, operation_name="Session summary"
+            )
+        except Exception as e:
+            logger.error("Failed to get session summary: %s", str(e))
+            raise IntelligenceAPIError(
+                f"Failed to get session summary: {str(e)}"
+            ) from e
+
+    async def _create_article(
+        self, session_id: str, topic: str, n_docs: Optional[int] = None
+    ) -> str:
+        """Create an article on the topic."""
+        try:
+            job_response = await self._make_request(
+                method="POST",
+                endpoint=f"/sessions/{session_id}/articles",
+                params={"topic": topic, "n_docs": n_docs},
+            )
+            return await self._handle_job_with_retries(
+                job_response=job_response, operation_name="Article creation"
+            )
+        except Exception as e:
+            logger.error("Failed to create article: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to create article: {str(e)}") from e
