@@ -5,7 +5,7 @@ A Python client for interacting with the SHADAI Intelligence API. This client pr
 ## Installation
 
 ```bash
-pip install intelligence-client
+pip install shadai
 ```
 
 ## Requirements
@@ -21,15 +21,20 @@ import asyncio
 from intelligence.core.session import Session
 
 async def main():
-    # Initialize a session
-    async with Session(type="standard") as session:
-        # Ingest documents
-        await session.ingest(input_dir="./data")
+    async with Session(type="standard", delete_session=True) as session:
+        await session.ingest(input_dir=input_dir)
 
-        # Query the processed documents
-        response = await session.query(
-            query="What is the main topic?",
-            display=True
+        await session.query(
+            query="¿De qué habla la quinta enmienda?", display_in_console=True
+        )
+
+        await session.get_summary(
+            display_in_console=True
+        )
+
+        await session.create_article(
+            topic="Enmiendas de los estados unidos y su impacto en la sociedad",
+            display_in_console=True,
         )
 
 if __name__ == "__main__":
