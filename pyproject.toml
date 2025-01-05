@@ -1,5 +1,5 @@
 [project]
-name = "intelligence-client"
+name = "shadai"
 version = "0.1.3"
 description = "SHADAI Intelligence Client"
 authors = [
