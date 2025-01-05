@@ -18,7 +18,7 @@ setup(
     author="Jaishir Bayuelo",
     author_email="jaisir@shadai.ai",
     description="GenaAI Intelligence Client",
-    long_description=open("README.md").read(),
+    long_description=open("readme.md").read(),
     long_description_content_type="text/markdown",
     package_dir={"intelligence": "intelligence"},
 )
