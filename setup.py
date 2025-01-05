@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="intelligence",
-    version="0.1.0",
+    version="0.1.3",
     packages=find_packages(),
     install_requires=[
         "boto3==1.35.36",

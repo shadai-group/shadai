@@ -1,6 +1,6 @@
 [project]
 name = "intelligence-client"
-version = "0.1.0"
+version = "0.1.3"
 description = "SHADAI Intelligence Client"
 authors = [
     {name = "SHADAI GROUP", email = "jaisir@shadai.ai"}
