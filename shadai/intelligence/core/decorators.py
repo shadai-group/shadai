@@ -7,7 +7,10 @@ from requests import HTTPError, RequestException
 from rich.console import Console
 from rich.panel import Panel
 
-from intelligence.core.exceptions import (
+from shadai.intelligence.core.exceptions import (
+    AgentConfigurationError,
+    AgentExecutionError,
+    AgentFunctionError,
     ConfigurationError,
     IngestionError,
     IntelligenceAPIError,
@@ -43,7 +46,7 @@ def retry_on_server_error(max_retries: int = 5, base_delay: float = 1.0) -> Call
     return decorator
 
 
-def handle_session_errors(func: Callable) -> Callable:
+def handle_errors(func: Callable) -> Callable:
     """Decorator for handling session errors with rich output."""
 
     ERROR_MESSAGES = {
@@ -68,6 +71,24 @@ def handle_session_errors(func: Callable) -> Callable:
                 "Verify your input files exist",
                 "Check file permissions",
                 "Ensure files are in supported format",
+            ],
+        },
+        AgentConfigurationError: {
+            "title": "Agent Configuration Error",
+            "suggestions": [
+                "Check your agent configuration",
+            ],
+        },
+        AgentExecutionError: {
+            "title": "Agent Execution Error",
+            "suggestions": [
+                "Check your agent configuration",
+            ],
+        },
+        AgentFunctionError: {
+            "title": "Agent Function Error",
+            "suggestions": [
+                "Check your agent configuration",
             ],
         },
     }

@@ -9,9 +9,9 @@ from requests import Session
 from rich.console import Console
 from rich.table import Table
 
-from intelligence.core.decorators import retry_on_server_error
-from intelligence.core.exceptions import ConfigurationError, IntelligenceAPIError
-from intelligence.core.schemas import (
+from shadai.intelligence.core.decorators import retry_on_server_error
+from shadai.intelligence.core.exceptions import ConfigurationError, IntelligenceAPIError
+from shadai.intelligence.core.schemas import (
     JobResponse,
     JobStatus,
     SessionCreate,
@@ -37,7 +37,7 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If INTELLIGENCE_API_KEY is not set.
         """
-        self.base_url = "https://api.intel.shadai.ai"
+        self.base_url = "http://127.0.0.1:8000"
         self.api_key = os.getenv("INTELLIGENCE_API_KEY")
         if not self.api_key:
             raise ConfigurationError(
@@ -324,3 +324,18 @@ class IntelligenceAdapter:
         except Exception as e:
             logger.error("Failed to create article: %s", str(e))
             raise IntelligenceAPIError(f"Failed to create article: {str(e)}") from e
+
+    async def _llm_call(self, session_id: str, prompt: str) -> str:
+        """Call the LLM with the prompt."""
+        try:
+            job_response = await self._make_request(
+                method="POST",
+                endpoint=f"/llms/{session_id}/call",
+                json={"prompt": prompt},
+            )
+            return await self._handle_job_with_retries(
+                job_response=job_response, operation_name="LLM call"
+            )
+        except Exception as e:
+            logger.error("Failed to call LLM: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to call LLM: {str(e)}") from e

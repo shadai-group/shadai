@@ -17,10 +17,10 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from intelligence.core.adapter import IntelligenceAdapter
-from intelligence.core.decorators import handle_session_errors
-from intelligence.core.exceptions import IngestionError
-from intelligence.core.schemas import SessionResponse
+from shadai.intelligence.core.adapter import IntelligenceAdapter
+from shadai.intelligence.core.decorators import handle_errors
+from shadai.intelligence.core.exceptions import IngestionError
+from shadai.intelligence.core.schemas import SessionResponse
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -56,7 +56,7 @@ class Session:
         """Get the session ID."""
         return self._session_id
 
-    @handle_session_errors
+    @handle_errors
     async def __aenter__(self):
         """Async context manager entry."""
         console.print("\n[bold blue]🚀 Initializing Intelligence Session...[/]")
@@ -64,7 +64,7 @@ class Session:
         console.print("[bold green]✓[/] Session initialized successfully\n")
         return self
 
-    @handle_session_errors
+    @handle_errors
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         if self._delete_session:
@@ -158,7 +158,7 @@ class Session:
             logger.error(f"Failed to upload {file_path.name}: {str(e)}")
             raise
 
-    @handle_session_errors
+    @handle_errors
     async def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
         """Upload files from the input directory in parallel for processing."""
         console.print("\n[bold blue]🚀 Starting Ingestion Process[/]")
@@ -220,7 +220,7 @@ class Session:
             logger.error("Ingestion failed: %s", str(e))
             raise IngestionError(f"Failed to ingest files: {str(e)}") from e
 
-    @handle_session_errors
+    @handle_errors
     async def query(self, query: str, display_in_console: bool = False) -> str:
         """Query the processed data."""
         console.print("\n[bold blue]🔍 Processing Query[/]")
@@ -244,7 +244,7 @@ class Session:
             logger.error("Query failed: %s", str(e))
             raise
 
-    @handle_session_errors
+    @handle_errors
     async def get_summary(self, display_in_console: bool = False) -> str:
         """Get session summary."""
         console.print("\n[bold blue]🔍 Getting session summary...[/]")
@@ -259,7 +259,7 @@ class Session:
         console.print("[bold green]✓[/] Session summary retrieved successfully")
         return summary
 
-    @handle_session_errors
+    @handle_errors
     async def create_article(self, topic: str, display_in_console: bool = False) -> str:
         """Create an article on the topic."""
         console.print("\n[bold blue]🚀 Creating article...[/]")
@@ -274,3 +274,17 @@ class Session:
             console.print(Panel(article, title="Article", border_style="green"))
         console.print("[bold green]✓[/] Article created successfully")
         return article
+
+    @handle_errors
+    async def llm_call(self, prompt: str, display_in_console: bool = True) -> str:
+        """Call the LLM with the prompt."""
+        console.print("\n[bold blue]🚀 Calling LLM...[/]")
+        console.print(Panel(prompt, title="Prompt"))
+        with console.status("[bold yellow]Calling LLM...[/]", spinner="dots"):
+            response = await self._adapter._llm_call(
+                session_id=self._session_id, prompt=prompt
+            )
+        if display_in_console:
+            console.print(Panel(response, title="Response", border_style="green"))
+        console.print("[bold green]✓[/] LLM call processed successfully")
+        return response

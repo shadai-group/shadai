@@ -32,6 +32,7 @@ class JobType(str, Enum):
     DELETE_SESSION = "delete_session"
     SUMMARY = "summary"
     ARTICLE = "article"
+    LLM_CALL = "llm_call"
 
 
 class JobResponse(BaseModel):

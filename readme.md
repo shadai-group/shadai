@@ -18,7 +18,7 @@ pip install shadai
 
 ```python
 import asyncio
-from intelligence.core.session import Session
+from shadai.intelligence.core.session import Session
 
 async def main():
     async with Session(type="standard", delete_session=True) as session:
