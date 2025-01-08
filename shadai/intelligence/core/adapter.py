@@ -11,12 +11,7 @@ from rich.table import Table
 
 from shadai.intelligence.core.decorators import retry_on_server_error
 from shadai.intelligence.core.exceptions import ConfigurationError, IntelligenceAPIError
-from shadai.intelligence.core.schemas import (
-    JobResponse,
-    JobStatus,
-    SessionCreate,
-    SessionResponse,
-)
+from shadai.intelligence.core.schemas import JobResponse, JobStatus, SessionCreate, SessionResponse
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -37,7 +32,7 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If INTELLIGENCE_API_KEY is not set.
         """
-        self.base_url = "http://127.0.0.1:8000"
+        self.base_url = "https://api.intel.shadai.ai"
         self.api_key = os.getenv("INTELLIGENCE_API_KEY")
         if not self.api_key:
             raise ConfigurationError(
