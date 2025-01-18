@@ -33,6 +33,14 @@ async def main():
     async with Session(type="standard", delete_session=True) as session:
         await session.ingest(input_dir=input_dir)
 
+        await session.query(query="¿De qué habla la quinta enmienda?")
+
+        await session.summarize()
+
+        await session.create_article(
+            topic="Enmiendas de la constitución y su impacto social"
+        )
+
         agent = ToolAgent(
             session=session,
             prompt="""

@@ -1,4 +1,4 @@
-# Intelligence Client
+# SHADAI Intelligence Client
 
 A Python client for interacting with the SHADAI Intelligence API. This client provides a simple interface for document processing, querying, and session management.
 
@@ -70,17 +70,6 @@ The client includes comprehensive error handling for:
 - File processing problems
 - Session management failures
 
-## Development
-
-To set up for development:
-
-```bash
-# Clone the repository
-git clone <repository-url>
-
-# Install with development dependencies
-pip install -e ".[dev]"
-```
 
 ## Author
 

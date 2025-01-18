@@ -40,7 +40,7 @@ class ToolAgent:
         """
         try:
             if self.use_summary:
-                return await self.session.get_summary()
+                return await self.session.summarize()
             return None
         except Exception as e:
             raise AgentExecutionError(f"Failed to get context: {str(e)}") from e

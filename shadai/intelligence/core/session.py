@@ -245,7 +245,7 @@ class Session:
             raise
 
     @handle_errors
-    async def get_summary(self, display_in_console: bool = False) -> str:
+    async def summarize(self, display_in_console: bool = False) -> str:
         """Get session summary."""
         console.print("\n[bold blue]🔍 Getting session summary...[/]")
         if not self._session_id:

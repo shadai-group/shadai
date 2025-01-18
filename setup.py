@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="shadai",
-    version="0.1.6",
+    version="0.1.7",
     packages=find_packages(),
     install_requires=[
         "boto3==1.35.36",
@@ -18,7 +18,7 @@ setup(
     author="Jaishir Bayuelo",
     author_email="jaisir@shadai.ai",
     description="SHADAI Client",
-    long_description=open("readme.md").read(),
+    long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     package_dir={"shadai": "shadai"},
 )
