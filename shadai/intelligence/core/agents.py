@@ -63,7 +63,12 @@ class ToolAgent:
             raise AgentFunctionError(f"Function execution failed: {str(e)}") from e
 
     @handle_errors
-    async def call(self, **kwargs: Any) -> Optional[str]:
+    async def call(
+        self,
+        display_prompt: bool = False,
+        display_in_console: bool = True,
+        **kwargs: Any,
+    ) -> Optional[str]:
         """
         Execute the agent's task and return the response
 
@@ -100,7 +105,11 @@ class ToolAgent:
 
         formatted_prompt = self.prompt.format(**format_args)
 
-        response = await self.session.llm_call(prompt=formatted_prompt)
+        response = await self.session.llm_call(
+            prompt=formatted_prompt,
+            display_prompt=display_prompt,
+            display_in_console=display_in_console,
+        )
 
         if response is None:
             raise AgentExecutionError("LLM call returned None")

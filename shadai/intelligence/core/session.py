@@ -276,15 +276,22 @@ class Session:
         return article
 
     @handle_errors
-    async def llm_call(self, prompt: str, display_in_console: bool = True) -> str:
+    async def llm_call(
+        self,
+        prompt: str,
+        display_prompt: bool = False,
+        display_in_console: bool = True,
+    ) -> str:
         """Call the LLM with the prompt."""
-        console.print("\n[bold blue]🚀 Calling LLM...[/]")
-        console.print(Panel(prompt, title="Prompt"))
-        with console.status("[bold yellow]Calling LLM...[/]", spinner="dots"):
+        console.print("\n[bold blue]🚀 Calling Agent LLM...[/]")
+        if display_prompt:
+            console.print(Panel(prompt, title="Prompt"))
+
+        with console.status("[bold yellow]Calling Agent LLM...[/]", spinner="dots"):
             response = await self._adapter._llm_call(
                 session_id=self._session_id, prompt=prompt
             )
         if display_in_console:
             console.print(Panel(response, title="Response", border_style="green"))
-        console.print("[bold green]✓[/] LLM call processed successfully")
+        console.print("[bold green]✓[/] Agent LLM call processed successfully")
         return response
