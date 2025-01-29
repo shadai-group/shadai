@@ -17,10 +17,10 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from shadai.intelligence.core.adapter import IntelligenceAdapter
-from shadai.intelligence.core.decorators import handle_errors
-from shadai.intelligence.core.exceptions import IngestionError
-from shadai.intelligence.core.schemas import SessionResponse
+from shadai.core.adapter import IntelligenceAdapter
+from shadai.core.decorators import handle_errors
+from shadai.core.exceptions import IngestionError
+from shadai.core.schemas import SessionResponse
 
 logger = logging.getLogger(__name__)
 console = Console()

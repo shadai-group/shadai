@@ -7,7 +7,7 @@ from requests import HTTPError, RequestException
 from rich.console import Console
 from rich.panel import Panel
 
-from shadai.intelligence.core.exceptions import (
+from shadai.core.exceptions import (
     AgentConfigurationError,
     AgentExecutionError,
     AgentFunctionError,

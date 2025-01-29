@@ -2,8 +2,8 @@ import asyncio
 import os
 from typing import Dict
 
-from shadai.intelligence.core.agents import ToolAgent
-from shadai.intelligence.core.session import Session
+from shadai.core.agents import ToolAgent
+from shadai.core.session import Session
 
 input_dir = os.path.join(os.path.dirname(__file__), "data")
 

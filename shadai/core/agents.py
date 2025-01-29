@@ -1,12 +1,12 @@
 from typing import Any, Awaitable, Callable, Optional, Union
 
-from shadai.intelligence.core.decorators import handle_errors
-from shadai.intelligence.core.exceptions import (
+from shadai.core.decorators import handle_errors
+from shadai.core.exceptions import (
     AgentConfigurationError,
     AgentExecutionError,
     AgentFunctionError,
 )
-from shadai.intelligence.core.session import Session
+from shadai.core.session import Session
 
 
 class ToolAgent:

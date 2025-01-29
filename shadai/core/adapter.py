@@ -9,9 +9,9 @@ from requests import Session
 from rich.console import Console
 from rich.table import Table
 
-from shadai.intelligence.core.decorators import retry_on_server_error
-from shadai.intelligence.core.exceptions import ConfigurationError, IntelligenceAPIError
-from shadai.intelligence.core.schemas import JobResponse, JobStatus, SessionCreate, SessionResponse
+from shadai.core.decorators import retry_on_server_error
+from shadai.core.exceptions import ConfigurationError, IntelligenceAPIError
+from shadai.core.schemas import JobResponse, JobStatus, SessionCreate, SessionResponse
 
 logger = logging.getLogger(__name__)
 load_dotenv()

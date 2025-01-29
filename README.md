@@ -1,6 +1,6 @@
 # SHADAI Intelligence Client
 
-A Python client for interacting with the SHADAI Intelligence API. This client provides a simple interface for document processing, querying, and session management.
+A Python client for interacting with the SHADAI API. This client provides a simple interface for document processing, querying, and session management.
 
 ## Installation
 
@@ -12,7 +12,7 @@ pip install shadai
 
 - Python >= 3.12
 - Environment Variables:
-  - `INTELLIGENCE_API_KEY`: Your SHADAI Intelligence API key
+  - `SHADAI_API_KEY`: Your SHADAI API key
 
 ## Quick Start
 
@@ -21,8 +21,8 @@ import asyncio
 import os
 from typing import Dict
 
-from shadai.intelligence.core.agents import ToolAgent
-from shadai.intelligence.core.session import Session
+from shadai.core.agents import ToolAgent
+from shadai.core.session import Session
 
 input_dir = os.path.join(os.path.dirname(__file__), "data")
 
