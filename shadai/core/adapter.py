@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 from typing import Any, AsyncGenerator, Dict, Literal, Optional
-from urllib.parse import urljoin
 
 from dotenv import load_dotenv
 from requests import Session
@@ -39,12 +38,20 @@ class IntelligenceAdapter:
         self._session = Session()
         self._session.headers.update({"ApiKey": self.api_key})
 
+    def _construct_url(self, endpoint: str) -> str:
+        """Construct the full URL from the base URL and endpoint."""
+        if not self.base_url.endswith('/'):
+            self.base_url += '/'
+        if endpoint.startswith('/'):
+            endpoint = endpoint[1:]
+        return self.base_url + endpoint
+
     @retry_on_server_error()
     async def _make_request(
         self, method: str, endpoint: str, **kwargs: Any
     ) -> Dict[str, Any]:
         """Make HTTP request with retry logic and error handling."""
-        url = urljoin(self.base_url, endpoint)
+        url = self._construct_url(endpoint)
         kwargs["timeout"] = kwargs.get("timeout", 25)
 
         response = self._session.request(method=method, url=url, **kwargs)
@@ -80,8 +87,35 @@ class IntelligenceAdapter:
             yield JobResponse.model_validate(response)
             await asyncio.sleep(interval)
 
+    async def _wait_until_final_status(
+        self,
+        poll_generator: AsyncGenerator[JobResponse, None],
+        timeout: float
+    ) -> JobResponse:
+        """
+        Wait until job reaches a final status (COMPLETED or FAILED).
+        
+        Args:
+            poll_generator: The polling generator
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            JobResponse with final status
+            
+        Raises:
+            TimeoutError if timeout is reached
+        """
+        
+        while True:
+            response = await asyncio.wait_for(
+                poll_generator.__anext__(),
+                timeout=timeout
+            )
+            if response.status in {JobStatus.COMPLETED, JobStatus.FAILED}:
+                return response
+
     async def _wait_for_job(
-        self, job_id: str, polling_interval: float = 5.0, timeout: float = 25
+        self, job_id: str, polling_interval: float = 5.0, timeout: float = 25,
     ) -> str:
         """
         Wait for job completion with timeout.
@@ -95,20 +129,19 @@ class IntelligenceAdapter:
             str: The job result data
 
         Raises:
-            IntelligenceAPIError: If job fails or times out
+            IntelligenceAPIError: If job fails, times out, or exceeds max attempts
         """
         try:
-            async with asyncio.timeout(timeout):
-                async for status in self._poll_job(
-                    job_id=job_id, interval=polling_interval
-                ):
-                    if status.status == JobStatus.COMPLETED:
-                        return status.result
-                    if status.status == JobStatus.FAILED:
-                        raise IntelligenceAPIError(
-                            f"Job {job_id} failed: Unknown error"
-                        )
-            return f"There was an error processing your request. Job ID: {job_id}"
+            poll_generator = self._poll_job(job_id=job_id, interval=polling_interval)
+            response = await self._wait_until_final_status(poll_generator, timeout)
+            
+            if response.status == JobStatus.COMPLETED:
+                return response.result
+            if response.status == JobStatus.FAILED:
+                raise IntelligenceAPIError(
+                    f"Job {job_id} failed: Unknown error"
+                )
+            
         except asyncio.TimeoutError:
             raise IntelligenceAPIError(
                 f"Job {job_id} timed out after {timeout} seconds"
@@ -170,7 +203,6 @@ class IntelligenceAdapter:
                 polling_interval=polling_interval,
                 timeout=timeout,
             )
-
             if "empty response" not in response.lower():
                 return response
 
