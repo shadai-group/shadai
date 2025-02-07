@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class AIModels(str, Enum):
     # Anthropic Models
     CLAUDE_3_5_SONNET_V2 = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"

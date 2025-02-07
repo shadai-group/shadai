@@ -130,7 +130,7 @@ def handle_errors(func: Callable) -> Callable:
                     f"[bold red]{error_config['title']}[/]\n\n"
                     f"[yellow]Details:[/] {str(e)}\n\n"
                     f"[blue]Suggestions:[/]\n"
-                    f"{''.join(f'• {s}\n' for s in error_config['suggestions'])}",
+                    + "".join(f"• {s}\n" for s in error_config["suggestions"]),
                     title="[red]Error",
                     border_style="red",
                 )
