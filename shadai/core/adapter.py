@@ -40,9 +40,9 @@ class IntelligenceAdapter:
 
     def _construct_url(self, endpoint: str) -> str:
         """Construct the full URL from the base URL and endpoint."""
-        if not self.base_url.endswith('/'):
-            self.base_url += '/'
-        if endpoint.startswith('/'):
+        if not self.base_url.endswith("/"):
+            self.base_url += "/"
+        if endpoint.startswith("/"):
             endpoint = endpoint[1:]
         return self.base_url + endpoint
 
@@ -88,34 +88,34 @@ class IntelligenceAdapter:
             await asyncio.sleep(interval)
 
     async def _wait_until_final_status(
-        self,
-        poll_generator: AsyncGenerator[JobResponse, None],
-        timeout: float
+        self, poll_generator: AsyncGenerator[JobResponse, None], timeout: float
     ) -> JobResponse:
         """
         Wait until job reaches a final status (COMPLETED or FAILED).
-        
+
         Args:
             poll_generator: The polling generator
             timeout: Maximum time to wait in seconds
-            
+
         Returns:
             JobResponse with final status
-            
+
         Raises:
             TimeoutError if timeout is reached
         """
-        
+
         while True:
             response = await asyncio.wait_for(
-                poll_generator.__anext__(),
-                timeout=timeout
+                poll_generator.__anext__(), timeout=timeout
             )
             if response.status in {JobStatus.COMPLETED, JobStatus.FAILED}:
                 return response
 
     async def _wait_for_job(
-        self, job_id: str, polling_interval: float = 5.0, timeout: float = 25,
+        self,
+        job_id: str,
+        polling_interval: float = 5.0,
+        timeout: float = 25,
     ) -> str:
         """
         Wait for job completion with timeout.
@@ -136,14 +136,12 @@ class IntelligenceAdapter:
             response = await self._wait_until_final_status(
                 poll_generator=poll_generator, timeout=timeout
             )
-            
+
             if response.status == JobStatus.COMPLETED:
                 return response.result
             if response.status == JobStatus.FAILED:
-                raise IntelligenceAPIError(
-                    f"Job {job_id} failed: Unknown error"
-                )
-            
+                raise IntelligenceAPIError(f"Job {job_id} failed: Unknown error")
+
         except asyncio.TimeoutError:
             raise IntelligenceAPIError(
                 f"Job {job_id} timed out after {timeout} seconds"
