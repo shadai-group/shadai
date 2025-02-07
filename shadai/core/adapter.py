@@ -133,7 +133,9 @@ class IntelligenceAdapter:
         """
         try:
             poll_generator = self._poll_job(job_id=job_id, interval=polling_interval)
-            response = await self._wait_until_final_status(poll_generator, timeout)
+            response = await self._wait_until_final_status(
+                poll_generator=poll_generator, timeout=timeout
+            )
             
             if response.status == JobStatus.COMPLETED:
                 return response.result
