@@ -31,7 +31,7 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If INTELLIGENCE_API_KEY is not set.
         """
-        self.base_url = "https://api.shadai.ai"
+        self.core_base_url = "http://127.0.0.1:8000"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
@@ -40,11 +40,11 @@ class IntelligenceAdapter:
 
     def _construct_url(self, endpoint: str) -> str:
         """Construct the full URL from the base URL and endpoint."""
-        if not self.base_url.endswith("/"):
-            self.base_url += "/"
+        if not self.core_base_url.endswith("/"):
+            self.core_base_url += "/"
         if endpoint.startswith("/"):
             endpoint = endpoint[1:]
-        return self.base_url + endpoint
+        return self.core_base_url + endpoint
 
     @retry_on_server_error()
     async def _make_request(
@@ -56,7 +56,8 @@ class IntelligenceAdapter:
 
         response = self._session.request(method=method, url=url, **kwargs)
         response.raise_for_status()
-        return response.json()
+        json_response = response.json()
+        return json_response.get("data")
 
     async def _get_job_status(self, job_id: str) -> JobResponse:
         """
@@ -248,7 +249,7 @@ class IntelligenceAdapter:
         response = await self._make_request(
             method="POST", endpoint="/sessions", json=session_create.model_dump()
         )
-        session_response = SessionResponse(**response)
+        session_response = SessionResponse.model_validate(response)
         table = Table(
             title="Session Configuration", show_header=True, header_style="bold blue"
         )
