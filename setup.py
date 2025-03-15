@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="shadai",
-    version="0.1.14",
+    version="0.1.15",
     packages=find_packages(),
     install_requires=[
         "boto3==1.35.36",

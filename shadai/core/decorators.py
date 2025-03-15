@@ -29,17 +29,23 @@ def retry_on_server_error(max_retries: int = 5, base_delay: float = 1.0) -> Call
                 try:
                     return await func(*args, **kwargs)
                 except RequestException as e:
-                    if isinstance(e, HTTPError) and 400 <= e.response.status_code < 500:
+                    if e.response.status_code == 402:
+                        console.print(
+                            "[red]⚠️  Insufficient balance. Please top up your account.[/]"
+                        )
                         raise
-                    if attempt == max_retries - 1:
-                        raise IntelligenceAPIError("Max retries reached") from e
-                    wait_time = min(base_delay * (2**attempt), 8) * (
-                        1 + random.random() * 0.1
-                    )
-                    console.print(
-                        f"[yellow]⚠️  Retrying request ({attempt + 1}/{max_retries}) in {wait_time:.1f}s...[/]"
-                    )
-                    await asyncio.sleep(wait_time)
+                    else:
+                        if isinstance(e, HTTPError) and 400 <= e.response.status_code < 500:
+                            raise
+                        if attempt == max_retries - 1:
+                            raise IntelligenceAPIError("Max retries reached") from e
+                        wait_time = min(base_delay * (2**attempt), 8) * (
+                            1 + random.random() * 0.1
+                        )
+                        console.print(
+                            f"[yellow]⚠️  Retrying request ({attempt + 1}/{max_retries}) in {wait_time:.1f}s...[/]"
+                        )
+                        await asyncio.sleep(wait_time)
 
         return wrapper
 
@@ -54,7 +60,7 @@ def handle_errors(func: Callable) -> Callable:
             "title": "API Error",
             "suggestions": [
                 "Check your API key",
-                "Verify the API server is running",
+                "Verify your available balance",
                 "Ensure you have network connectivity",
             ],
         },

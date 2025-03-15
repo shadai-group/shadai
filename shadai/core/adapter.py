@@ -29,7 +29,7 @@ class IntelligenceAdapter:
             base_url (Optional[str]): Base URL for the API. Defaults to localhost.
 
         Raises:
-            ConfigurationError: If INTELLIGENCE_API_KEY is not set.
+            ConfigurationError: If SHADAI_API_KEY is not set.
         """
         self.core_base_url = "https://core.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
@@ -55,6 +55,10 @@ class IntelligenceAdapter:
         kwargs["timeout"] = kwargs.get("timeout", 25)
 
         response = self._session.request(method=method, url=url, **kwargs)
+        if response.status_code == 402:
+            raise IntelligenceAPIError(
+                "Insufficient balance. Please top up your account."
+            )
         response.raise_for_status()
         json_response = response.json()
         return json_response.get("data")
