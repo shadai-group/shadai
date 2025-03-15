@@ -35,7 +35,10 @@ def retry_on_server_error(max_retries: int = 5, base_delay: float = 1.0) -> Call
                         )
                         raise
                     else:
-                        if isinstance(e, HTTPError) and 400 <= e.response.status_code < 500:
+                        if (
+                            isinstance(e, HTTPError)
+                            and 400 <= e.response.status_code < 500
+                        ):
                             raise
                         if attempt == max_retries - 1:
                             raise IntelligenceAPIError("Max retries reached") from e
