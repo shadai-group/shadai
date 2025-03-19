@@ -369,3 +369,29 @@ class IntelligenceAdapter:
         except Exception as e:
             logger.error("Failed to call LLM: %s", str(e))
             raise IntelligenceAPIError(f"Failed to call LLM: {str(e)}") from e
+
+    async def _chat(
+        self, session_id: str, message: str, system_prompt: Optional[str] = None
+    ) -> str:
+        """Chat with the LLM using the session context and knowledge base.
+
+        Args:
+            session_id (str): The session identifier
+            message (str): The message to send to the LLM
+            system_prompt (Optional[str]): The system prompt to use for the chat
+
+        Returns:
+            str: The chat response
+        """
+        try:
+            job_response = await self._make_request(
+                method="POST",
+                endpoint=f"/sessions/{session_id}/chat",
+                json={"message": message, "system_prompt": system_prompt},
+            )
+            return await self._handle_job_with_retries(
+                job_response=job_response, operation_name="Chat"
+            )
+        except Exception as e:
+            logger.error("Failed to chat: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to chat: {str(e)}") from e

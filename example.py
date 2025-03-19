@@ -30,11 +30,12 @@ def get_constitutional_article(article_id: str) -> str:
 
 
 async def main():
-    async with Session(type="standard", delete_session=True) as session:
+    async with Session(type="standard", delete_session=False) as session:
         await session.ingest(input_dir=input_dir)
 
         await session.query(
-            query="¿De qué habla la quinta enmienda?", display_in_console=True
+            query="¿De qué habla la quinta enmienda de la constitución?",
+            display_in_console=True,
         )
 
         await session.summarize(display_in_console=True)
@@ -65,6 +66,12 @@ async def main():
         )
 
         await agent.call(article_id="1")
+
+        await session.chat(
+            message="¿Qué dice la constitución sobre la libertad de expresión?",
+            system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
+            display_in_console=True,
+        )
 
 
 if __name__ == "__main__":

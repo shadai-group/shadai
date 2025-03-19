@@ -33,6 +33,7 @@ class JobType(str, Enum):
     SUMMARY = "summary"
     ARTICLE = "article"
     LLM_CALL = "llm_call"
+    CHAT = "chat"
 
 
 class JobResponse(BaseModel):

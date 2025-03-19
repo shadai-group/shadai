@@ -295,3 +295,42 @@ class Session:
             console.print(Panel(response, title="Response", border_style="green"))
         console.print("[bold green]✓[/] Agent LLM call processed successfully")
         return response
+
+    @handle_errors
+    async def chat(
+        self,
+        message: str,
+        system_prompt: Optional[str] = None,
+        display_in_console: bool = True,
+    ) -> str:
+        """Chat with the LLM using the session context and knowledge base.
+
+        Args:
+            message (str): The message to send to the LLM
+            system_prompt (Optional[str]): The system prompt to use for the chat
+            display_in_console (bool): Whether to display the chat in the console
+
+        Returns:
+            str: The chat response
+        """
+        console.print("\n[bold blue]🚀 Chatting with Agent LLM...[/]")
+        if system_prompt:
+            console.print("\n[bold yellow]✨ Input System Prompt[/]")
+            console.print(Panel(system_prompt, title="System Prompt"))
+
+        console.print("\n[bold yellow]🔍 Input Message[/]")
+        console.print(Panel(message, title="Message"))
+
+        with console.status(
+            "[bold yellow]Chatting with Agent LLM...[/]", spinner="dots"
+        ):
+            response = await self._adapter._chat(
+                session_id=self._session_id,
+                message=message,
+                system_prompt=system_prompt,
+            )
+
+        if display_in_console:
+            console.print(Panel(response, title="Response", border_style="green"))
+        console.print("[bold green]✓[/] Chat processed successfully")
+        return response
