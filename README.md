@@ -10,7 +10,7 @@ pip install shadai
 
 ## Requirements
 
-- Python >= 3.12
+- Python >= 3.9
 - Environment Variables:
   - `SHADAI_API_KEY`: Your SHADAI API key
 
@@ -49,16 +49,17 @@ def get_constitutional_article(article_id: str) -> str:
 
 
 async def main():
-    async with Session(type="standard", delete_session=True) as session:
-        await session.ingest(input_dir=input_dir)
+    async with Session(type="standard", delete=True) as session:
+        await session.aingest(input_dir=input_dir)
 
-        await session.query(
-            query="¿De qué habla la quinta enmienda?", display_in_console=True
+        await session.aquery(
+            query="¿De qué habla la quinta enmienda de la constitución?",
+            display_in_console=True,
         )
 
-        await session.summarize(display_in_console=True)
+        await session.asummarize(display_in_console=True)
 
-        await session.create_article(
+        await session.aarticle(
             topic="Enmiendas de la constitución y su impacto social",
             display_in_console=True,
         )
@@ -83,7 +84,13 @@ async def main():
             function=get_constitutional_article,
         )
 
-        await agent.call(article_id="1")
+        await agent.acall(article_id="1")
+
+        await session.achat(
+            message="¿Qué dice la constitución sobre la libertad de expresión?",
+            system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
+            display_in_console=True,
+        )
 
 
 if __name__ == "__main__":
@@ -110,7 +117,7 @@ if __name__ == "__main__":
 | llm_max_tokens | int | Maximum tokens for response | None |
 | query_mode | str | Query processing mode | None |
 | language | str | Response language | None |
-| delete_session | bool | Auto-delete session on exit | True |
+| delete | bool | Auto-delete session on exit | True |
 
 ## Error Handling
 

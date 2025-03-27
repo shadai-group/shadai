@@ -31,7 +31,7 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
-        self.core_base_url = "https://core.shadai.ai"
+        self.core_base_url = "http://127.0.0.1:8000"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
@@ -119,16 +119,16 @@ class IntelligenceAdapter:
     async def _wait_for_job(
         self,
         job_id: str,
-        polling_interval: float = 5.0,
-        timeout: float = 25,
+        polling_interval: float = 10.0,
+        timeout: float = 30,
     ) -> str:
         """
         Wait for job completion with timeout.
 
         Args:
             job_id (str): The job identifier to wait for
-            polling_interval (float): Time in seconds between status checks. Defaults to 5.0.
-            timeout (float): Maximum time to wait in seconds. Defaults to 25.
+            polling_interval (float): Time in seconds between status checks. Defaults to 10.0.
+            timeout (float): Maximum time to wait in seconds. Defaults to 30.
 
         Returns:
             str: The job result data

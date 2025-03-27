@@ -106,14 +106,14 @@ def handle_errors(func: Callable) -> Callable:
         """Helper function to cleanup session if needed."""
         if (
             instance
-            and hasattr(instance, "_delete_session")
-            and instance._delete_session
+            and hasattr(instance, "_delete")
+            and instance._delete
             and func.__name__ != "__aexit__"
             and not getattr(instance, "_session_cleaned_up", False)
         ):
             try:
                 console.print("[yellow]⚙️  Cleaning up session...[/]")
-                await instance.delete_session()
+                await instance.delete()
                 setattr(instance, "_session_cleaned_up", True)
                 console.print("[green]✓[/] Session cleaned up")
             except Exception as cleanup_error:

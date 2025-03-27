@@ -20,6 +20,7 @@ from rich.progress import (
 from shadai.core.adapter import IntelligenceAdapter
 from shadai.core.decorators import handle_errors
 from shadai.core.exceptions import IngestionError
+from shadai.core.files import FileManager
 from shadai.core.schemas import SessionResponse
 
 logger = logging.getLogger(__name__)
@@ -27,21 +28,37 @@ console = Console()
 
 
 class Session:
-    """A session manager for the Intelligence API that handles file ingestion and querying."""
+    """
+    A session manager for the Intelligence API that handles file ingestion and querying.
+
+    Args:
+        session_id (Optional[str]): The session ID to use.
+        type (Literal["light", "standard", "deep"]): The type of session to create.
+        llm_model (str): The LLM model to use.
+        llm_temperature (float): The temperature to use for the LLM.
+        llm_max_tokens (int): The maximum number of tokens to use for the LLM.
+        query_mode (str): The query mode to use.
+        language (str): The language to use for the session.
+        delete (bool): Whether to delete the session after it is no longer needed.
+
+    Returns:
+        Session: The session object
+    """
 
     def __init__(
         self,
         session_id: Optional[str] = None,
         type: Literal["light", "standard", "deep"] = "standard",
-        llm_model: Optional[str] = None,
-        llm_temperature: Optional[float] = None,
-        llm_max_tokens: Optional[int] = None,
-        query_mode: Optional[str] = None,
-        language: Optional[str] = None,
-        delete_session: bool = True,
+        llm_model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        llm_temperature: float = 0.7,
+        llm_max_tokens: int = 4096,
+        query_mode: str = "hybrid",
+        language: str = "es",
+        delete: bool = True,
     ) -> None:
         """Initialize a new session with the specified parameters."""
         self._adapter = IntelligenceAdapter()
+        self._file_manager = FileManager()
         self._session_id = session_id
         self._type = type
         self._llm_model = llm_model
@@ -49,28 +66,43 @@ class Session:
         self._llm_max_tokens = llm_max_tokens
         self._query_mode = query_mode
         self._language = language
-        self._delete_session = delete_session
+        self._delete = delete
 
     @property
-    def session_id(self) -> Optional[str]:
-        """Get the session ID."""
+    def id(self) -> Optional[str]:
+        """Get the session ID.
+
+        Returns:
+            Optional[str]: The session ID
+        """
         return self._session_id
 
     @handle_errors
     async def __aenter__(self):
-        """Async context manager entry."""
+        """Async context manager entry.
+
+        Returns:
+            Session: The session object
+        """
         console.print("\n[bold blue]🚀 Initializing Intelligence Session...[/]")
-        self._session_id = await self._get_session()
+        self._session_id = await self._get()
         console.print("[bold green]✓[/] Session initialized successfully\n")
         return self
 
     @handle_errors
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._delete_session:
-            await self.delete_session()
+        """Async context manager exit.
 
-    async def _get_session(self) -> str:
+        Args:
+            exc_type (type): The exception type
+            exc_val (Exception): The exception value
+            exc_tb (traceback): The exception traceback
+        """
+        if self._delete:
+            await self.adelete()
+
+    @handle_errors
+    async def _get(self) -> str:
         """Get the session ID."""
         if self._session_id:
             with console.status("[bold yellow]Getting existing session..."):
@@ -79,10 +111,10 @@ class Session:
                     f"[bold green]✓[/] Retrieved existing session (ID: {session.session_id})"
                 )
         else:
-            session = await self._create_session()
+            session = await self._create()
         return session.session_id
 
-    async def _create_session(self) -> SessionResponse:
+    async def _create(self) -> SessionResponse:
         """Create a new session."""
         with console.status("[bold yellow]Creating new session..."):
             session = await self._adapter.create_session(
@@ -98,69 +130,14 @@ class Session:
             )
         return session
 
-    async def delete_session(self) -> None:
-        """Delete the session."""
-        if not self._session_id:
-            raise ValueError("Session ID is required")
-
-        with console.status("[bold blue]🚀 Cleaning up session...[/]"):
-            await self._adapter.delete_session(self._session_id)
-            console.print("[bold green]✓[/] Session cleaned up successfully")
-
-    async def _count_files(self, input_path: Path) -> int:
-        """Count the total number of files to process."""
-        return sum(1 for _ in input_path.rglob("*") if _.is_file())
-
-    async def _upload_file(
-        self,
-        file_path: Path,
-        progress: Progress,
-        overall_task_id: int,
-    ) -> None:
-        """Upload a single file with progress tracking and update overall progress."""
-        try:
-            url = await self._adapter._get_presigned_url(
-                session_id=self._session_id, filename=file_path.name
-            )
-            file_size = os.path.getsize(file_path)
-            file_task_id = progress.add_task(
-                f"[cyan]└─ {file_path.name}", total=file_size, start=True, visible=True
-            )
-            with open(file_path, "rb") as f:
-                file_data = f.read()
-            response = self._adapter._session.put(
-                url,
-                data=file_data,
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    "Content-Length": str(file_size),
-                },
-            )
-            if not response.ok:
-                raise RequestException(
-                    f"Upload failed for {file_path.name}: {response.status_code}"
-                )
-            progress.update(
-                task_id=file_task_id,
-                completed=file_size,
-                description=f"[green]└─ ✓ {file_path.name}",
-                refresh=True,
-            )
-            progress.update(task_id=overall_task_id, advance=file_size, refresh=True)
-
-        except Exception as e:
-            if "file_task_id" in locals():
-                progress.update(
-                    task_id=file_task_id,
-                    description=f"[red]└─ ✗ {file_path.name}",
-                    refresh=True,
-                )
-            logger.error(f"Failed to upload {file_path.name}: {str(e)}")
-            raise
-
     @handle_errors
-    async def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
-        """Upload files from the input directory in parallel for processing."""
+    async def aingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
+        """Upload files from the input directory in parallel for processing.
+
+        Args:
+            input_dir (str): The path to the directory containing the files to process.
+            max_concurrent_uploads (int): The maximum number of files to upload concurrently.
+        """
         console.print("\n[bold blue]🚀 Starting Ingestion Process[/]")
 
         input_path = Path(input_dir)
@@ -198,7 +175,8 @@ class Session:
                 for i in range(0, total_files, max_concurrent_uploads):
                     chunk = files[i : i + max_concurrent_uploads]
                     upload_tasks = [
-                        self._upload_file(
+                        self._file_manager._upload_file(
+                            session_id=self._session_id,
                             file_path=file_path,
                             progress=progress,
                             overall_task_id=overall_task_id,
@@ -220,9 +198,31 @@ class Session:
             logger.error("Ingestion failed: %s", str(e))
             raise IngestionError(f"Failed to ingest files: {str(e)}") from e
 
+    def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
+        """Upload files from the input directory in parallel for processing.
+
+        Args:
+            input_dir (str): The path to the directory containing the files to process.
+            max_concurrent_uploads (int): The maximum number of files to upload concurrently.
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(
+            self.aingest(
+                input_dir=input_dir, max_concurrent_uploads=max_concurrent_uploads
+            )
+        )
+
     @handle_errors
-    async def query(self, query: str, display_in_console: bool = False) -> str:
-        """Query the processed data."""
+    async def aquery(self, query: str, display_in_console: bool = False) -> str:
+        """Query the processed data.
+
+        Args:
+            query (str): The query to process.
+            display_in_console (bool): Whether to display the query in the console.
+
+        Returns:
+            str: The query response.
+        """
         console.print("\n[bold blue]🔍 Processing Query[/]")
         console.print(Panel(query, title="Query"))
 
@@ -244,9 +244,31 @@ class Session:
             logger.error("Query failed: %s", str(e))
             raise
 
+    def query(self, query: str, display_in_console: bool = False) -> str:
+        """Query the processed data.
+
+        Args:
+            query (str): The query to process.
+            display_in_console (bool): Whether to display the query in the console.
+
+        Returns:
+            str: The query response.
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(
+            self.aquery(query=query, display_in_console=display_in_console)
+        )
+
     @handle_errors
-    async def summarize(self, display_in_console: bool = False) -> str:
-        """Get session summary."""
+    async def asummarize(self, display_in_console: bool = False) -> str:
+        """Get session summary.
+
+        Args:
+            display_in_console (bool): Whether to display the summary in the console.
+
+        Returns:
+            str: The session summary.
+        """
         console.print("\n[bold blue]🔍 Getting session summary...[/]")
         if not self._session_id:
             raise ValueError("Session ID is required")
@@ -259,9 +281,31 @@ class Session:
         console.print("[bold green]✓[/] Session summary retrieved successfully")
         return summary
 
+    def summarize(self, display_in_console: bool = False) -> str:
+        """Get session summary.
+
+        Args:
+            display_in_console (bool): Whether to display the summary in the console.
+
+        Returns:
+            str: The session summary.
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(
+            self.asummarize(display_in_console=display_in_console)
+        )
+
     @handle_errors
-    async def create_article(self, topic: str, display_in_console: bool = False) -> str:
-        """Create an article on the topic."""
+    async def aarticle(self, topic: str, display_in_console: bool = False) -> str:
+        """Create an article on the topic.
+
+        Args:
+            topic (str): The topic to create the article on.
+            display_in_console (bool): Whether to display the article in the console.
+
+        Returns:
+            str: The article.
+        """
         console.print("\n[bold blue]🚀 Creating article...[/]")
         console.print(Panel(topic, title="Topic"))
         if not self._session_id:
@@ -275,14 +319,38 @@ class Session:
         console.print("[bold green]✓[/] Article created successfully")
         return article
 
+    def article(self, topic: str, display_in_console: bool = False) -> str:
+        """Create an article on the topic.
+
+        Args:
+            topic (str): The topic to create the article on.
+            display_in_console (bool): Whether to display the article in the console.
+
+        Returns:
+            str: The article.
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(
+            self.aarticle(topic=topic, display_in_console=display_in_console)
+        )
+
     @handle_errors
-    async def llm_call(
+    async def acall(
         self,
         prompt: str,
         display_prompt: bool = False,
         display_in_console: bool = True,
     ) -> str:
-        """Call the LLM with the prompt."""
+        """Call the LLM with the prompt.
+
+        Args:
+            prompt (str): The prompt to call the LLM with.
+            display_prompt (bool): Whether to display the prompt in the console.
+            display_in_console (bool): Whether to display the response in the console.
+
+        Returns:
+            str: The response from the LLM.
+        """
         console.print("\n[bold blue]🚀 Calling Agent LLM...[/]")
         if display_prompt:
             console.print(Panel(prompt, title="Prompt"))
@@ -296,8 +364,25 @@ class Session:
         console.print("[bold green]✓[/] Agent LLM call processed successfully")
         return response
 
+    def call(
+        self, prompt: str, display_prompt: bool = False, display_in_console: bool = True
+    ) -> str:
+        """Call the LLM with the prompt.
+
+        Args:
+            prompt (str): The prompt to call the LLM with.
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(
+            self.acall(
+                prompt=prompt,
+                display_prompt=display_prompt,
+                display_in_console=display_in_console,
+            )
+        )
+
     @handle_errors
-    async def chat(
+    async def achat(
         self,
         message: str,
         system_prompt: Optional[str] = None,
@@ -334,3 +419,50 @@ class Session:
             console.print(Panel(response, title="Response", border_style="green"))
         console.print("[bold green]✓[/] Chat processed successfully")
         return response
+
+    def chat(
+        self,
+        message: str,
+        system_prompt: Optional[str] = None,
+        display_in_console: bool = True,
+    ) -> str:
+        """Chat with the LLM using the session context and knowledge base.
+
+        Args:
+            message (str): The message to send to the LLM
+            system_prompt (Optional[str]): The system prompt to use for the chat
+            display_in_console (bool): Whether to display the chat in the console
+
+        Returns:
+            str: The chat response
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(
+            self.achat(
+                message=message,
+                system_prompt=system_prompt,
+                display_in_console=display_in_console,
+            )
+        )
+
+    async def adelete(self) -> None:
+        """Delete the session.
+
+        Raises:
+            ValueError: If the session ID is not set.
+        """
+        if not self._session_id:
+            raise ValueError("Session ID is required")
+
+        with console.status("[bold blue]🚀 Cleaning up session...[/]"):
+            await self._adapter.delete_session(self._session_id)
+            console.print("[bold green]✓[/] Session cleaned up successfully")
+
+    def delete(self) -> None:
+        """Delete the session.
+
+        Raises:
+            ValueError: If the session ID is not set.
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(self.adelete())

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Awaitable, Callable, Optional, Union
 
 from shadai.core.decorators import handle_errors
@@ -40,7 +41,7 @@ class ToolAgent:
         """
         try:
             if self.use_summary:
-                return await self.session.summarize()
+                return await self.session.asummarize()
             return None
         except Exception as e:
             raise AgentExecutionError(f"Failed to get context: {str(e)}") from e
@@ -63,16 +64,18 @@ class ToolAgent:
             raise AgentFunctionError(f"Function execution failed: {str(e)}") from e
 
     @handle_errors
-    async def call(
+    async def acall(
         self,
         display_prompt: bool = False,
         display_in_console: bool = True,
         **kwargs: Any,
     ) -> Optional[str]:
         """
-        Execute the agent's task and return the response
+        Execute asynchronously the agent's task and return the response
 
         Args:
+            display_prompt (bool): Whether to display the prompt
+            display_in_console (bool): Whether to display the response in the console
             **kwargs: Additional keyword arguments to pass to the function
 
         Returns:
@@ -105,7 +108,7 @@ class ToolAgent:
 
         formatted_prompt = self.prompt.format(**format_args)
 
-        response = await self.session.llm_call(
+        response = await self.session.acall(
             prompt=formatted_prompt,
             display_prompt=display_prompt,
             display_in_console=display_in_console,
@@ -115,3 +118,29 @@ class ToolAgent:
             raise AgentExecutionError("LLM call returned None")
 
         return response
+
+    def call(
+        self,
+        display_prompt: bool = False,
+        display_in_console: bool = True,
+        **kwargs: Any,
+    ) -> Optional[str]:
+        """
+        Execute synchronously the agent's task and return the response
+
+        Args:
+            display_prompt (bool): Whether to display the prompt
+            display_in_console (bool): Whether to display the response in the console
+            **kwargs: Additional keyword arguments to pass to the function
+
+        Returns:
+            Optional[str]: Generated response from the agent, or None if an error occurred
+        """
+        event_loop = asyncio.get_event_loop()
+        return event_loop.run_until_complete(
+            self.acall(
+                display_prompt=display_prompt,
+                display_in_console=display_in_console,
+                **kwargs,
+            )
+        )
