@@ -6,7 +6,6 @@ from typing import Any, AsyncGenerator, Dict, Literal, Optional
 from dotenv import load_dotenv
 from requests import Session
 from rich.console import Console
-from rich.table import Table
 
 from shadai.core.decorators import retry_on_server_error
 from shadai.core.exceptions import ConfigurationError, IntelligenceAPIError
@@ -249,57 +248,56 @@ class IntelligenceAdapter:
         Create new processing session.
         """
         session_create = SessionCreate(config_name=type, **kwargs)
-        console.print(f"[bold blue]🔧 Creating new {type} session...[/]")
         response = await self._make_request(
             method="POST", endpoint="/sessions", json=session_create.model_dump()
         )
         session_response = SessionResponse.model_validate(response)
-        table = Table(
-            title="Session Configuration", show_header=True, header_style="bold blue"
-        )
-        table.add_column("Parameter", style="cyan")
-        table.add_column("Value", style="green")
-
-        config = session_response.model_dump()
-        for key, value in config.items():
-            table.add_row(key, str(value))
-        console.print(table)
         return session_response
 
-    async def get_session(self, session_id: str) -> SessionResponse:
+    async def get_session(
+        self, session_id: Optional[str] = None, alias: Optional[str] = None
+    ) -> Optional[SessionResponse]:
         """Get session by ID.
 
         Args:
-            session_id (str): The session identifier
-
+            session_id (Optional[str]): The session identifier
+            alias (Optional[str]): The alias to use for the session
         Returns:
-            str: The session ID
+            Optional[SessionResponse]: The session response or None if the session is not found
 
         Raises:
             IntelligenceAPIError: If session retrieval fails
         """
         try:
             response = await self._make_request(
-                method="GET", endpoint=f"/sessions/{session_id}"
+                method="GET",
+                endpoint=f"/sessions/{session_id}",
+                params={"alias": alias},
             )
+            if alias is not None and response is None:
+                return None
             return SessionResponse.model_validate(response)
         except Exception as e:
             logger.error("Failed to get session: %s", str(e))
             raise IntelligenceAPIError(f"Session retrieval failed: {str(e)}") from e
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(
+        self, session_id: Optional[str] = None, alias: Optional[str] = None
+    ) -> None:
         """
         Delete session and wait for completion.
 
         Args:
-            session_id: The session identifier to delete
-
+            session_id (Optional[str]): The session identifier to delete
+            alias (Optional[str]): The alias to use for the session
         Raises:
             IntelligenceAPIError: If deletion fails
         """
         try:
             response = await self._make_request(
-                method="DELETE", endpoint=f"/sessions/{session_id}"
+                method="DELETE",
+                endpoint=f"/sessions/{session_id}",
+                params={"alias": alias},
             )
             await self._wait_for_job(
                 job_id=response.get("job_id"), polling_interval=5, timeout=180
@@ -395,3 +393,17 @@ class IntelligenceAdapter:
         except Exception as e:
             logger.error("Failed to chat: %s", str(e))
             raise IntelligenceAPIError(f"Failed to chat: {str(e)}") from e
+
+    async def list_sessions(self):
+        """
+        List all sessions related to an user
+
+        Returns:
+            List[SessionResponse]: A list of session responses
+        """
+        try:
+            response = await self._make_request(method="GET", endpoint="/sessions")
+            return [SessionResponse.model_validate(session) for session in response]
+        except Exception as e:
+            logger.error("Failed to list sessions: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to list sessions: {str(e)}") from e

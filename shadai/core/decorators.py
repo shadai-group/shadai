@@ -62,6 +62,7 @@ def handle_errors(func: Callable) -> Callable:
         IntelligenceAPIError: {
             "title": "API Error",
             "suggestions": [
+                "Check your API call parameters",
                 "Check your API key",
                 "Verify your available balance",
                 "Ensure you have network connectivity",
@@ -106,14 +107,14 @@ def handle_errors(func: Callable) -> Callable:
         """Helper function to cleanup session if needed."""
         if (
             instance
-            and hasattr(instance, "_delete")
-            and instance._delete
+            and hasattr(instance, "_adelete")
+            and instance._adelete
             and func.__name__ != "__aexit__"
             and not getattr(instance, "_session_cleaned_up", False)
         ):
             try:
                 console.print("[yellow]⚙️  Cleaning up session...[/]")
-                await instance.delete()
+                await instance.adelete()
                 setattr(instance, "_session_cleaned_up", True)
                 console.print("[green]✓[/] Session cleaned up")
             except Exception as cleanup_error:

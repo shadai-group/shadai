@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Coroutine, Literal, Optional
 
 from requests.exceptions import RequestException
 from rich.console import Console
@@ -16,6 +16,7 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.table import Table
 
 from shadai.core.adapter import IntelligenceAdapter
 from shadai.core.decorators import handle_errors
@@ -33,6 +34,7 @@ class Session:
 
     Args:
         session_id (Optional[str]): The session ID to use.
+        alias (Optional[str]): The alias to use for the session.
         type (Literal["light", "standard", "deep"]): The type of session to create.
         llm_model (str): The LLM model to use.
         llm_temperature (float): The temperature to use for the LLM.
@@ -48,6 +50,7 @@ class Session:
     def __init__(
         self,
         session_id: Optional[str] = None,
+        alias: Optional[str] = None,
         type: Literal["light", "standard", "deep"] = "standard",
         llm_model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0",
         llm_temperature: float = 0.7,
@@ -60,6 +63,7 @@ class Session:
         self._adapter = IntelligenceAdapter()
         self._file_manager = FileManager()
         self._session_id = session_id
+        self._alias = alias
         self._type = type
         self._llm_model = llm_model
         self._llm_temperature = llm_temperature
@@ -77,6 +81,26 @@ class Session:
         """
         return self._session_id
 
+    def _run_async(self, task: Coroutine) -> Any:
+        """Helper method to run async code in sync context.
+
+        Args:
+            task (Coroutine): The async task to run.
+
+        Returns:
+            Any: The result of the async task.
+        """
+        try:
+            return asyncio.run(task)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(task)
+            finally:
+                loop.close()
+                asyncio.set_event_loop(None)
+
     @handle_errors
     async def __aenter__(self):
         """Async context manager entry.
@@ -85,7 +109,7 @@ class Session:
             Session: The session object
         """
         console.print("\n[bold blue]🚀 Initializing Intelligence Session...[/]")
-        self._session_id = await self._get()
+        self._session_id = await self._aget()
         console.print("[bold green]✓[/] Session initialized successfully\n")
         return self
 
@@ -102,21 +126,40 @@ class Session:
             await self.adelete()
 
     @handle_errors
-    async def _get(self) -> str:
+    async def _aget(self) -> str:
         """Get the session ID."""
-        if self._session_id:
+        if self._session_id or self._alias:
             with console.status("[bold yellow]Getting existing session..."):
-                session = await self._adapter.get_session(session_id=self._session_id)
-                console.print(
-                    f"[bold green]✓[/] Retrieved existing session (ID: {session.session_id})"
+                session = await self._adapter.get_session(
+                    session_id=self._session_id, alias=self._alias
                 )
+                if session is None and self._alias is not None:
+                    console.print(
+                        f"[bold red]✗[/] [bold red]Session not found with alias:[/] [bold white]{self._alias}[/]"
+                    )
+                else:
+                    console.print(
+                        f"[bold green]✓ Retrieved existing session ->[/] alias: [bold white]{session.alias}[/] ([bold white]ID:[/] {session.session_id})"
+                    )
+            if session is None and self._alias is not None:
+                session = await self._acreate()
         else:
-            session = await self._create()
+            session = await self._acreate()
         return session.session_id
 
-    async def _create(self) -> SessionResponse:
+    @handle_errors
+    def _get(self) -> str:
+        """Get the session ID.
+
+        Returns:
+            str: The session ID
+        """
+        return self._run_async(self._aget())
+
+    @handle_errors
+    async def _acreate(self) -> SessionResponse:
         """Create a new session."""
-        with console.status("[bold yellow]Creating new session..."):
+        with console.status(f"[bold yellow]Creating new {self._type} session...\n\n"):
             session = await self._adapter.create_session(
                 type=self._type,
                 llm_model=self._llm_model,
@@ -124,11 +167,34 @@ class Session:
                 llm_max_tokens=self._llm_max_tokens,
                 query_mode=self._query_mode,
                 language=self._language,
+                alias=self._alias,
             )
-            console.print(
-                f"[bold green]✓[/] Session created successfully (ID: {session.session_id})"
+            table = Table(
+                title="Session Configuration",
+                show_header=True,
+                header_style="bold blue",
             )
+            table.add_column("Parameter", style="cyan")
+            table.add_column("Value", style="green")
+            config = session.model_dump()
+            for key, value in config.items():
+                table.add_row(key, str(value))
+            console.print(table)
+
+        console.print("\n[bold green]✓[/] Session created successfully")
+        console.print(
+            f"[bold green]✓[/] Alias: [bold yellow]{session.alias}[/] (ID: {session.session_id})"
+        )
         return session
+
+    @handle_errors
+    def _create(self) -> SessionResponse:
+        """Create a new session.
+
+        Returns:
+            SessionResponse: The session response
+        """
+        return self._run_async(self._acreate())
 
     @handle_errors
     async def aingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
@@ -205,8 +271,7 @@ class Session:
             input_dir (str): The path to the directory containing the files to process.
             max_concurrent_uploads (int): The maximum number of files to upload concurrently.
         """
-        event_loop = asyncio.get_event_loop()
-        return event_loop.run_until_complete(
+        return self._run_async(
             self.aingest(
                 input_dir=input_dir, max_concurrent_uploads=max_concurrent_uploads
             )
@@ -254,8 +319,7 @@ class Session:
         Returns:
             str: The query response.
         """
-        event_loop = asyncio.get_event_loop()
-        return event_loop.run_until_complete(
+        return self._run_async(
             self.aquery(query=query, display_in_console=display_in_console)
         )
 
@@ -290,10 +354,7 @@ class Session:
         Returns:
             str: The session summary.
         """
-        event_loop = asyncio.get_event_loop()
-        return event_loop.run_until_complete(
-            self.asummarize(display_in_console=display_in_console)
-        )
+        return self._run_async(self.asummarize(display_in_console=display_in_console))
 
     @handle_errors
     async def aarticle(self, topic: str, display_in_console: bool = False) -> str:
@@ -329,8 +390,7 @@ class Session:
         Returns:
             str: The article.
         """
-        event_loop = asyncio.get_event_loop()
-        return event_loop.run_until_complete(
+        return self._run_async(
             self.aarticle(topic=topic, display_in_console=display_in_console)
         )
 
@@ -372,8 +432,7 @@ class Session:
         Args:
             prompt (str): The prompt to call the LLM with.
         """
-        event_loop = asyncio.get_event_loop()
-        return event_loop.run_until_complete(
+        return self._run_async(
             self.acall(
                 prompt=prompt,
                 display_prompt=display_prompt,
@@ -386,6 +445,7 @@ class Session:
         self,
         message: str,
         system_prompt: Optional[str] = None,
+        use_history: bool = True,
         display_in_console: bool = True,
     ) -> str:
         """Chat with the LLM using the session context and knowledge base.
@@ -393,6 +453,7 @@ class Session:
         Args:
             message (str): The message to send to the LLM
             system_prompt (Optional[str]): The system prompt to use for the chat
+            use_history (bool): Whether to use the history of the chat
             display_in_console (bool): Whether to display the chat in the console
 
         Returns:
@@ -406,14 +467,19 @@ class Session:
         console.print("\n[bold yellow]🔍 Input Message[/]")
         console.print(Panel(message, title="Message"))
 
-        with console.status(
-            "[bold yellow]Chatting with Agent LLM...[/]", spinner="dots"
-        ):
-            response = await self._adapter._chat(
-                session_id=self._session_id,
-                message=message,
-                system_prompt=system_prompt,
-            )
+        with console.status("[bold yellow]Chatting with LLM...[/]", spinner="dots"):
+            if use_history:
+                response = await self._adapter._chat(
+                    session_id=self._session_id,
+                    message=message,
+                    system_prompt=system_prompt,
+                )
+            else:
+                prompt = f"System prompt: {system_prompt}\n\n User message: {message}"
+                response = await self._adapter._llm_call(
+                    session_id=self._session_id,
+                    prompt=prompt,
+                )
 
         if display_in_console:
             console.print(Panel(response, title="Response", border_style="green"))
@@ -424,6 +490,7 @@ class Session:
         self,
         message: str,
         system_prompt: Optional[str] = None,
+        use_history: bool = True,
         display_in_console: bool = True,
     ) -> str:
         """Chat with the LLM using the session context and knowledge base.
@@ -431,16 +498,17 @@ class Session:
         Args:
             message (str): The message to send to the LLM
             system_prompt (Optional[str]): The system prompt to use for the chat
+            use_history (bool): Whether to use the history of the chat
             display_in_console (bool): Whether to display the chat in the console
 
         Returns:
             str: The chat response
         """
-        event_loop = asyncio.get_event_loop()
-        return event_loop.run_until_complete(
+        return self._run_async(
             self.achat(
                 message=message,
                 system_prompt=system_prompt,
+                use_history=use_history,
                 display_in_console=display_in_console,
             )
         )
@@ -451,11 +519,13 @@ class Session:
         Raises:
             ValueError: If the session ID is not set.
         """
-        if not self._session_id:
-            raise ValueError("Session ID is required")
+        if not self._session_id and not self._alias:
+            raise ValueError("Session ID or alias is required")
 
         with console.status("[bold blue]🚀 Cleaning up session...[/]"):
-            await self._adapter.delete_session(self._session_id)
+            await self._adapter.delete_session(
+                session_id=self._session_id, alias=self._alias
+            )
             console.print("[bold green]✓[/] Session cleaned up successfully")
 
     def delete(self) -> None:
@@ -464,5 +534,4 @@ class Session:
         Raises:
             ValueError: If the session ID is not set.
         """
-        event_loop = asyncio.get_event_loop()
-        return event_loop.run_until_complete(self.adelete())
+        return self._run_async(self.adelete())

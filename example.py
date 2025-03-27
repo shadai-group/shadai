@@ -3,6 +3,7 @@ import os
 from typing import Dict
 
 from shadai.core.agents import ToolAgent
+from shadai.core.manager import Manager
 from shadai.core.session import Session
 
 input_dir = os.path.join(os.path.dirname(__file__), "data")
@@ -30,7 +31,9 @@ def get_constitutional_article(article_id: str) -> str:
 
 
 async def main():
-    async with Session(type="standard", delete=True) as session:
+    async with Session(
+        alias="async_example 11", type="standard", delete=True
+    ) as session:
         await session.aingest(input_dir=input_dir)
 
         await session.aquery(
@@ -70,8 +73,13 @@ async def main():
         await session.achat(
             message="¿Qué dice la constitución sobre la libertad de expresión?",
             system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
+            use_history=True,
             display_in_console=True,
         )
+
+    async with Manager() as manager:
+        # await manager.adelete_session(alias="async_example 3")
+        await manager.alist_sessions(show_in_console=True)
 
 
 if __name__ == "__main__":
