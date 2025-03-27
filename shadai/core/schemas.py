@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class SessionCreate(BaseModel):
     config_name: str
+    alias: Optional[str] = None
     llm_model: Optional[str] = None
     llm_temperature: Optional[float] = None
     llm_max_tokens: Optional[int] = None
@@ -15,6 +16,8 @@ class SessionCreate(BaseModel):
 
 class SessionResponse(SessionCreate):
     session_id: str
+    status: str
+    cost: float = 0
 
 
 class JobStatus(str, Enum):
