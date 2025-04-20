@@ -20,6 +20,7 @@ from rich.table import Table
 
 from shadai.core.adapter import IntelligenceAdapter
 from shadai.core.decorators import handle_errors
+from shadai.core.enums import AIModels, QueryMode
 from shadai.core.exceptions import IngestionError
 from shadai.core.files import FileManager
 from shadai.core.schemas import Query, QueryResponse, SessionResponse
@@ -52,10 +53,10 @@ class Session:
         session_id: Optional[str] = None,
         alias: Optional[str] = None,
         type: Literal["light", "standard", "deep"] = "standard",
-        llm_model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        llm_model: AIModels = AIModels.CLAUDE_3_5_HAIKU,
         llm_temperature: float = 0.7,
         llm_max_tokens: int = 4096,
-        query_mode: str = "hybrid",
+        query_mode: QueryMode = QueryMode.HYBRID,
         language: str = "es",
         delete: bool = True,
     ) -> None:
@@ -65,10 +66,10 @@ class Session:
         self._session_id = session_id
         self._alias = alias
         self._type = type
-        self._llm_model = llm_model
+        self._llm_model = llm_model.value
         self._llm_temperature = llm_temperature
         self._llm_max_tokens = llm_max_tokens
-        self._query_mode = query_mode
+        self._query_mode = query_mode.value
         self._language = language
         self._delete = delete
 

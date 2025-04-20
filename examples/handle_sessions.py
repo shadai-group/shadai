@@ -3,6 +3,7 @@ import os
 import sys
 from ast import List
 
+from shadai.core.enums import AIModels, QueryMode
 from shadai.core.schemas import SessionResponse
 
 # Add the parent directory to sys.path to access the shadai package
@@ -10,6 +11,26 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shadai.core.manager import Manager
 from shadai.core.session import Session
+
+
+async def create_session() -> Session:
+    """
+    This function creates a new session with specific parameters.
+    You can customize model, temperature, tokens, and query mode.
+    If you set delete to False, you need to manually delete the session.
+
+    Returns:
+        Session: The session object.
+    """
+    async with Session(
+        type="standard",
+        llm_model=AIModels.CLAUDE_3_7_SONNET,
+        llm_temperature=0.7,
+        llm_max_tokens=4096,
+        query_mode=QueryMode.HYBRID,
+        delete=False,
+    ) as session:
+        return session
 
 
 async def get_existing_session_with_session_id(session_id: str) -> Session:
