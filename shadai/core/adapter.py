@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 from typing import Any, AsyncGenerator, Dict, Literal, Optional
 
 from dotenv import load_dotenv
@@ -30,7 +31,7 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
-        self.core_base_url = "https://core.shadai.ai"
+        self.core_base_url = "https://dev.core.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
@@ -62,16 +63,59 @@ class IntelligenceAdapter:
         json_response = response.json()
         return json_response.get("data")
 
-    async def _get_job_status(self, job_id: str) -> JobResponse:
+    async def _get_job_status(
+        self, job_id: str, max_retries: int = 5, retry_delay: float = 1.0
+    ) -> JobResponse:
         """
-        Get the status of a job.
+        Get the status of a job with retry for None responses.
+
+        Args:
+            job_id: The job identifier
+            max_retries: Maximum number of retries for None responses
+            retry_delay: Initial delay between retries (with exponential backoff)
+
+        Returns:
+            JobResponse: The job status response
+
+        Raises:
+            IntelligenceAPIError: If job status check fails after all retries
         """
-        try:
-            response = await self._make_request("GET", f"/jobs/{job_id}")
-            return JobResponse.model_validate(response)
-        except Exception as e:
-            logger.error("Failed to get job status: %s", str(e))
-            raise IntelligenceAPIError(f"Failed to get job status: {str(e)}") from e
+        for attempt in range(max_retries):
+            try:
+                response = await self._make_request("GET", f"/jobs/{job_id}")
+                if response is None:
+                    # API returned None during temporary unavailability
+                    if attempt < max_retries - 1:
+                        # Use exponential backoff with jitter
+                        backoff_delay = (
+                            retry_delay * (2**attempt) * (1 + random.random() * 0.1)
+                        )
+                        logger.warning(
+                            f"Job status check received None response (attempt {attempt + 1}/{max_retries}), "
+                            f"retrying in {backoff_delay:.2f} seconds..."
+                        )
+                        await asyncio.sleep(backoff_delay)
+                        continue
+                    else:
+                        raise IntelligenceAPIError(
+                            f"Job status check failed: Received None response after {max_retries} attempts"
+                        )
+
+                return JobResponse.model_validate(response)
+
+            except Exception as e:
+                if attempt < max_retries - 1 and "NoneType" in str(e):
+                    # Handle NoneType errors with exponential backoff
+                    backoff_delay = (
+                        retry_delay * (2**attempt) * (1 + random.random() * 0.1)
+                    )
+                    await asyncio.sleep(backoff_delay)
+                    continue
+                else:
+                    logger.error("Failed to get job status: %s", str(e))
+                    raise IntelligenceAPIError(
+                        f"Failed to get job status: {str(e)}"
+                    ) from e
 
     async def _poll_job(
         self, job_id: str, interval: float
@@ -86,10 +130,36 @@ class IntelligenceAdapter:
         Yields:
             JobResponse: Current status of the job
         """
+        retries = 0
+        max_consecutive_failures = 5
+
         while True:
-            response = await self._get_job_status(job_id=job_id)
-            yield JobResponse.model_validate(response)
-            await asyncio.sleep(interval)
+            try:
+                response = await self._get_job_status(job_id=job_id)
+                # Reset retry counter on success
+                retries = 0
+                yield response
+
+                # If job is done, no need to continue polling
+                if response.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
+                    break
+
+                await asyncio.sleep(interval)
+
+            except Exception as e:
+                retries += 1
+                if retries < max_consecutive_failures:
+                    logger.warning(
+                        f"Job polling failed (attempt {retries}/{max_consecutive_failures}), "
+                        f"retrying in {interval} seconds... Error: {str(e)}"
+                    )
+                    await asyncio.sleep(interval)
+                    continue
+                else:
+                    logger.error(
+                        f"Job polling failed after {max_consecutive_failures} attempts: {str(e)}"
+                    )
+                    raise
 
     async def _wait_until_final_status(
         self, poll_generator: AsyncGenerator[JobResponse, None], timeout: float
@@ -120,14 +190,16 @@ class IntelligenceAdapter:
         job_id: str,
         polling_interval: float = 10.0,
         timeout: float = 30,
+        max_retries: int = 5,
     ) -> str:
         """
-        Wait for job completion with timeout.
+        Wait for job completion with timeout and retry on temporary service unavailability.
 
         Args:
             job_id (str): The job identifier to wait for
             polling_interval (float): Time in seconds between status checks. Defaults to 10.0.
             timeout (float): Maximum time to wait in seconds. Defaults to 30.
+            max_retries (int): Maximum number of consecutive retries on failure. Defaults to 5.
 
         Returns:
             str: The job result data
@@ -137,43 +209,126 @@ class IntelligenceAdapter:
         """
         try:
             poll_generator = self._poll_job(job_id=job_id, interval=polling_interval)
+
+            # Use a higher timeout for _wait_until_final_status to allow for recovery from temporary unavailability
             response = await self._wait_until_final_status(
-                poll_generator=poll_generator, timeout=timeout
+                poll_generator=poll_generator, timeout=timeout * 1.5
             )
 
             if response.status == JobStatus.COMPLETED:
+                if response.result is None:
+                    # Special handling for None result from a completed job
+                    logger.warning(
+                        f"Job {job_id} completed but returned None result, treating as empty response"
+                    )
+                    return "Empty response from the server. The data might still be processing."
                 return response.result
+
             if response.status == JobStatus.FAILED:
                 raise IntelligenceAPIError(f"Job {job_id} failed: Unknown error")
 
-        except asyncio.TimeoutError:
+            # This should not happen (status not COMPLETED or FAILED)
+            logger.error(
+                f"Job {job_id} ended with unexpected status: {response.status}"
+            )
             raise IntelligenceAPIError(
-                f"Job {job_id} timed out after {timeout} seconds"
+                f"Job {job_id} ended with unexpected status: {response.status}"
             )
 
-    async def ingest(self, session_id: str) -> str:
+        except asyncio.TimeoutError:
+            # Log extra information when timeout occurs
+            logger.error(f"Job {job_id} timed out after {timeout} seconds")
+            raise IntelligenceAPIError(
+                f"Job {job_id} timed out after {timeout} seconds. The service may be experiencing high load."
+            )
+        except Exception as e:
+            # More detailed logging for any other exceptions
+            logger.error(f"Error waiting for job {job_id}: {str(e)}")
+            if "NoneType" in str(e):
+                # Handle NoneType errors specifically
+                logger.warning(
+                    f"NoneType error detected for job {job_id}, service may be temporarily unavailable"
+                )
+                raise IntelligenceAPIError(
+                    f"Service temporarily unavailable while processing job {job_id}. Please try again later."
+                ) from e
+            raise IntelligenceAPIError(
+                f"Error waiting for job {job_id}: {str(e)}"
+            ) from e
+
+    async def ingest(self, session_id: str, max_retries: int = 3) -> str:
         """
-        Start ingestion process and wait for completion.
+        Start ingestion process and wait for completion with enhanced error handling.
 
         Args:
             session_id (str): The session identifier for ingestion
+            max_retries (int): Maximum number of retries for transient errors
 
         Returns:
             str: Result of the ingestion process
 
         Raises:
-            IntelligenceAPIError: If ingestion fails
+            IntelligenceAPIError: If ingestion fails after all retries
         """
-        try:
-            response = await self._make_request(
-                method="POST", endpoint=f"/ingestion/{session_id}"
-            )
-            return await self._wait_for_job(
-                job_id=response.get("job_id"), polling_interval=10, timeout=600
-            )
-        except Exception as e:
-            logger.error("Ingestion failed: %s", str(e))
-            raise IntelligenceAPIError(f"Ingestion failed: {str(e)}") from e
+        retries = 0
+        last_error = None
+
+        while retries < max_retries:
+            try:
+                # Try to start the ingestion process
+                response = await self._make_request(
+                    method="POST", endpoint=f"/ingestion/{session_id}"
+                )
+
+                if not response or "job_id" not in response:
+                    # Handle case where response is None or missing job_id
+                    logger.warning(
+                        f"Ingestion request returned invalid response: {response} "
+                        f"(attempt {retries + 1}/{max_retries})"
+                    )
+                    retries += 1
+                    await asyncio.sleep(2**retries)  # Exponential backoff
+                    continue
+
+                # Wait for the job to complete with enhanced timeout
+                return await self._wait_for_job(
+                    job_id=response.get("job_id"),
+                    polling_interval=10,
+                    timeout=600,
+                    max_retries=5,
+                )
+
+            except Exception as e:
+                last_error = e
+                # Check if this is a NoneType error (likely temporary service unavailability)
+                if "NoneType" in str(e):
+                    retries += 1
+                    if retries < max_retries:
+                        backoff = 2**retries
+                        logger.warning(
+                            f"Ingestion encountered temporary service unavailability "
+                            f"(attempt {retries}/{max_retries}), retrying in {backoff} seconds... Error: {str(e)}"
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    else:
+                        logger.error(
+                            f"Ingestion failed after {max_retries} attempts: {str(e)}"
+                        )
+                        raise IntelligenceAPIError(
+                            f"Ingestion failed due to service unavailability after {max_retries} attempts. "
+                            f"Please try again later."
+                        ) from e
+                else:
+                    # For other errors, just raise immediately
+                    logger.error(f"Ingestion failed: {str(e)}")
+                    raise IntelligenceAPIError(f"Ingestion failed: {str(e)}") from e
+
+        # This should only be reached if all retries are exhausted
+        logger.error(f"Ingestion failed after {max_retries} attempts")
+        raise IntelligenceAPIError(
+            f"Ingestion failed after {max_retries} attempts: {str(last_error)}"
+        )
 
     async def _handle_job_with_retries(
         self,
@@ -221,25 +376,28 @@ class IntelligenceAdapter:
             f"{operation_name} returned 'Empty response' after all retry attempts. The server might still be processing the data."
         )
 
-    async def query(
-        self, session_id: str, query: str, max_retries: int = 3, retry_delay: int = 5
-    ) -> str:
-        """Execute query and wait for response."""
+    async def get_presigned_url(self, session_id: str, filename: str) -> str:
+        """Generate a pre-signed URL for file upload.
+
+        Args:
+            session_id (str): The session identifier
+            filename (str): The filename to upload
+
+        Returns:
+            str: The pre-signed URL
+        """
         try:
-            job_response = await self._make_request(
+            response = await self._make_request(
                 method="GET",
-                endpoint=f"/querying/{session_id}",
-                params={"query": query},
+                endpoint=f"/ingestion/{session_id}",
+                params={"filename": filename},
             )
-            return await self._handle_job_with_retries(
-                job_response=job_response,
-                operation_name="Query",
-                max_retries=max_retries,
-                retry_delay=retry_delay,
-            )
+            return response.get("url")
         except Exception as e:
-            logger.error("Query failed: %s", str(e))
-            raise IntelligenceAPIError(f"Query failed: {str(e)}") from e
+            logger.error("Failed to generate upload URL: %s", str(e))
+            raise IntelligenceAPIError(
+                f"Failed to generate upload URL: {str(e)}"
+            ) from e
 
     async def create_session(
         self, type: Literal["light", "standard", "deep"], **kwargs: Any
@@ -306,45 +464,115 @@ class IntelligenceAdapter:
             logger.error("Failed to delete session: %s", str(e))
             raise IntelligenceAPIError(f"Session deletion failed: {str(e)}") from e
 
-    async def _get_presigned_url(self, session_id: str, filename: str) -> str:
-        """Generate a pre-signed URL for file upload."""
+    async def cleanup_namespace(self) -> None:
+        """
+        Cleanup the namespace
+
+        Raises:
+            IntelligenceAPIError: If cleanup fails
+        """
         try:
             response = await self._make_request(
-                method="GET",
-                endpoint=f"/ingestion/{session_id}",
-                params={"filename": filename},
+                method="DELETE",
+                endpoint="/sessions/",
             )
-            return response.get("url")
+            await self._wait_for_job(
+                job_id=response.get("job_id"), polling_interval=5, timeout=180
+            )
         except Exception as e:
-            logger.error("Failed to generate upload URL: %s", str(e))
-            raise IntelligenceAPIError(
-                f"Failed to generate upload URL: {str(e)}"
-            ) from e
+            logger.error("Failed to delete session: %s", str(e))
+            raise IntelligenceAPIError(f"Session deletion failed: {str(e)}") from e
 
-    async def _get_session_summary(self, session_id: str) -> str:
-        """Get session summary."""
+    async def list_sessions(self):
+        """
+        List all sessions related to an user
+
+        Returns:
+            List[SessionResponse]: A list of session responses
+        """
+        try:
+            response = await self._make_request(method="GET", endpoint="/sessions/")
+            return [SessionResponse.model_validate(session) for session in response]
+        except Exception as e:
+            logger.error("Failed to list sessions: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to list sessions: {str(e)}") from e
+
+    async def query(
+        self,
+        session_id: str,
+        query: str,
+        role: Optional[str] = None,
+        max_retries: int = 3,
+        retry_delay: int = 5,
+    ) -> str:
+        """Execute query and wait for response.
+
+        Args:
+            session_id (str): The session identifier
+            query (str): The query to execute
+            role (Optional[str]): The role to use for the query
+            max_retries (int): Maximum number of retry attempts
+            retry_delay (int): Delay between retries in seconds
+
+        Returns:
+            str: The query response
+
+        Raises:
+            IntelligenceAPIError: If query fails or returns empty response after all retries
+        """
         try:
             job_response = await self._make_request(
-                method="GET", endpoint=f"/sessions/{session_id}/summary"
+                method="GET",
+                endpoint=f"/retrieval/{session_id}/query",
+                params={"query": query, "role": role},
             )
             return await self._handle_job_with_retries(
-                job_response=job_response, operation_name="Session summary"
+                job_response=job_response,
+                operation_name="Query",
+                max_retries=max_retries,
+                retry_delay=retry_delay,
             )
         except Exception as e:
-            logger.error("Failed to get session summary: %s", str(e))
+            logger.error("Query failed: %s", str(e))
+            raise IntelligenceAPIError(f"Query failed: {str(e)}") from e
+
+    async def get_knowledge_summary(self, session_id: str) -> str:
+        """Get session knowledge summary.
+
+        Args:
+            session_id (str): The session identifier
+
+        Returns:
+            str: The knowledge summary
+        """
+        try:
+            job_response = await self._make_request(
+                method="GET", endpoint=f"/retrieval/{session_id}/summary"
+            )
+            return await self._handle_job_with_retries(
+                job_response=job_response, operation_name="Knowledge summary"
+            )
+        except Exception as e:
+            logger.error("Failed to get knowledge summary: %s", str(e))
             raise IntelligenceAPIError(
-                f"Failed to get session summary: {str(e)}"
+                f"Failed to get knowledge summary: {str(e)}"
             ) from e
 
-    async def _create_article(
-        self, session_id: str, topic: str, n_docs: Optional[int] = None
-    ) -> str:
-        """Create an article on the topic."""
+    async def create_article(self, session_id: str, topic: str) -> str:
+        """Create an article on the topic.
+
+        Args:
+            session_id (str): The session identifier
+            topic (str): The topic to create the article on
+
+        Returns:
+            str: The article creation response
+        """
         try:
             job_response = await self._make_request(
                 method="POST",
-                endpoint=f"/sessions/{session_id}/articles",
-                params={"topic": topic, "n_docs": n_docs},
+                endpoint=f"/retrieval/{session_id}/article",
+                json={"topic": topic},
             )
             return await self._handle_job_with_retries(
                 job_response=job_response, operation_name="Article creation"
@@ -353,22 +581,7 @@ class IntelligenceAdapter:
             logger.error("Failed to create article: %s", str(e))
             raise IntelligenceAPIError(f"Failed to create article: {str(e)}") from e
 
-    async def _llm_call(self, session_id: str, prompt: str) -> str:
-        """Call the LLM with the prompt."""
-        try:
-            job_response = await self._make_request(
-                method="POST",
-                endpoint=f"/llms/{session_id}/call",
-                json={"prompt": prompt},
-            )
-            return await self._handle_job_with_retries(
-                job_response=job_response, operation_name="LLM call"
-            )
-        except Exception as e:
-            logger.error("Failed to call LLM: %s", str(e))
-            raise IntelligenceAPIError(f"Failed to call LLM: {str(e)}") from e
-
-    async def _chat(
+    async def chat(
         self, session_id: str, message: str, system_prompt: Optional[str] = None
     ) -> str:
         """Chat with the LLM using the session context and knowledge base.
@@ -384,7 +597,7 @@ class IntelligenceAdapter:
         try:
             job_response = await self._make_request(
                 method="POST",
-                endpoint=f"/sessions/{session_id}/chat",
+                endpoint=f"/inference/{session_id}/chat",
                 json={"message": message, "system_prompt": system_prompt},
             )
             return await self._handle_job_with_retries(
@@ -394,16 +607,46 @@ class IntelligenceAdapter:
             logger.error("Failed to chat: %s", str(e))
             raise IntelligenceAPIError(f"Failed to chat: {str(e)}") from e
 
-    async def list_sessions(self):
-        """
-        List all sessions related to an user
+    async def llm_call(self, session_id: str, prompt: str) -> str:
+        """Call the LLM with the prompt.
+
+        Args:
+            session_id (str): The session identifier
+            prompt (str): The prompt to send to the LLM
 
         Returns:
-            List[SessionResponse]: A list of session responses
+            str: The LLM response
         """
         try:
-            response = await self._make_request(method="GET", endpoint="/sessions")
-            return [SessionResponse.model_validate(session) for session in response]
+            job_response = await self._make_request(
+                method="POST",
+                endpoint=f"/inference/{session_id}/completion",
+                json={"prompt": prompt},
+            )
+            return await self._handle_job_with_retries(
+                job_response=job_response, operation_name="LLM call"
+            )
         except Exception as e:
-            logger.error("Failed to list sessions: %s", str(e))
-            raise IntelligenceAPIError(f"Failed to list sessions: {str(e)}") from e
+            logger.error("Failed to call LLM: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to call LLM: {str(e)}") from e
+
+    async def cleanup_chat(self, session_id: str) -> None:
+        """
+        Cleanup the chat history.
+
+        Args:
+            session_id (str): The session identifier to cleanup
+        Raises:
+            IntelligenceAPIError: If cleanup fails
+        """
+        try:
+            job_response = await self._make_request(
+                method="DELETE",
+                endpoint=f"/inference/{session_id}/cleanup-chat",
+            )
+            await self._wait_for_job(
+                job_id=job_response.get("job_id"), polling_interval=5, timeout=180
+            )
+        except Exception as e:
+            logger.error("Failed to cleanup chat: %s", str(e))
+            raise IntelligenceAPIError(f"Chat cleanup failed: {str(e)}") from e

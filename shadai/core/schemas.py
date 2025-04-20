@@ -35,8 +35,10 @@ class JobType(str, Enum):
     DELETE_SESSION = "delete_session"
     SUMMARY = "summary"
     ARTICLE = "article"
-    LLM_CALL = "llm_call"
+    COMPLETION = "completion"
     CHAT = "chat"
+    CLEANUP_CHAT = "cleanup_chat"
+    CLEANUP_NAMESPACE = "cleanup_namespace"
 
 
 class JobResponse(BaseModel):
@@ -48,3 +50,15 @@ class JobResponse(BaseModel):
     job_type: JobType
     status: JobStatus
     result: Optional[str] = "in progress"
+
+
+class Query(BaseModel):
+    query: str
+    role: Optional[str] = None
+    display_in_console: bool = False
+
+
+class QueryResponse(BaseModel):
+    query: Query
+    response: str
+    display_in_console: bool = False

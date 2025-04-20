@@ -1,9 +1,11 @@
-import asyncio
 import os
+import sys
 from typing import Dict
 
+# Add the parent directory to sys.path to access the shadai package
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from shadai.core.agents import ToolAgent
-from shadai.core.manager import Manager
 from shadai.core.session import Session
 
 input_dir = os.path.join(os.path.dirname(__file__), "data")
@@ -31,23 +33,8 @@ def get_constitutional_article(article_id: str) -> str:
 
 
 async def main():
-    async with Session(
-        alias="async_example 11", type="standard", delete=True
-    ) as session:
-        await session.aingest(input_dir=input_dir)
-
-        await session.aquery(
-            query="¿De qué habla la quinta enmienda de la constitución?",
-            display_in_console=True,
-        )
-
-        await session.asummarize(display_in_console=True)
-
-        await session.aarticle(
-            topic="Enmiendas de la constitución y su impacto social",
-            display_in_console=True,
-        )
-
+    async with Session(type="standard", delete=True) as session:
+        await session.ingest(input_dir=input_dir)
         agent = ToolAgent(
             session=session,
             prompt="""
@@ -67,20 +54,4 @@ async def main():
             use_summary=True,
             function=get_constitutional_article,
         )
-
-        await agent.acall(article_id="1")
-
-        await session.achat(
-            message="¿Qué dice la constitución sobre la libertad de expresión?",
-            system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
-            use_history=True,
-            display_in_console=True,
-        )
-
-    async with Manager() as manager:
-        # await manager.adelete_session(alias="async_example 3")
-        await manager.alist_sessions(show_in_console=True)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        await agent.call(article_id="1")

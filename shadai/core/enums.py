@@ -33,3 +33,19 @@ class AIModels(str, Enum):
     LLAMA_3_2_1B_INSTRUCT = "us.meta.llama3-2-1b-instruct-v1:0"
     LLAMA_3_1_70B_INSTRUCT = "us.meta.llama3-1-70b-instruct-v1:0"
     LLAMA_3_1_8B_INSTRUCT = "us.meta.llama3-1-8b-instruct-v1:0"
+
+
+class QueryMode(str, Enum):
+    DEFAULT = "default"
+    SPARSE = "sparse"
+    HYBRID = "hybrid"
+    TEXT_SEARCH = "text_search"
+    SEMANTIC_HYBRID = "semantic_hybrid"
+
+    # fit learners
+    SVM = "svm"
+    LOGISTIC_REGRESSION = "logistic_regression"
+    LINEAR_REGRESSION = "linear_regression"
+
+    # maximum marginal relevance
+    MMR = "mmr"

@@ -42,7 +42,7 @@ class FileManager:
             overall_task_id (int): The ID of the overall task to update.
         """
         try:
-            url = await self._adapter._get_presigned_url(
+            url = await self._adapter.get_presigned_url(
                 session_id=session_id, filename=file_path.name
             )
             file_size = os.path.getsize(file_path)

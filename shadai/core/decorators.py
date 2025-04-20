@@ -1,7 +1,7 @@
 import asyncio
 import random
 from functools import wraps
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable, TypeVar, cast
 
 from requests import HTTPError, RequestException
 from rich.console import Console
@@ -17,6 +17,10 @@ from shadai.core.exceptions import (
 )
 
 console = Console()
+
+# Define TypeVars for the function return types
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 def retry_on_server_error(max_retries: int = 5, base_delay: float = 1.0) -> Callable:
@@ -55,8 +59,18 @@ def retry_on_server_error(max_retries: int = 5, base_delay: float = 1.0) -> Call
     return decorator
 
 
-def handle_errors(func: Callable) -> Callable:
-    """Decorator for handling session errors with rich output."""
+def handle_errors(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    """
+    Decorator for handling session errors with rich output.
+
+    This decorator preserves the return type of the decorated function.
+
+    Args:
+        func: The async function to decorate
+
+    Returns:
+        A decorated function with the same return type as the original
+    """
 
     ERROR_MESSAGES = {
         IntelligenceAPIError: {
@@ -107,14 +121,14 @@ def handle_errors(func: Callable) -> Callable:
         """Helper function to cleanup session if needed."""
         if (
             instance
-            and hasattr(instance, "_adelete")
-            and instance._adelete
+            and hasattr(instance, "_delete")
+            and instance._delete
             and func.__name__ != "__aexit__"
             and not getattr(instance, "_session_cleaned_up", False)
         ):
             try:
                 console.print("[yellow]⚙️  Cleaning up session...[/]")
-                await instance.adelete()
+                await instance.delete()
                 setattr(instance, "_session_cleaned_up", True)
                 console.print("[green]✓[/] Session cleaned up")
             except Exception as cleanup_error:
@@ -123,7 +137,7 @@ def handle_errors(func: Callable) -> Callable:
                 )
 
     @wraps(func)
-    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+    async def wrapper(*args: Any, **kwargs: Any) -> T:
         try:
             return await func(*args, **kwargs)
 
@@ -163,4 +177,4 @@ def handle_errors(func: Callable) -> Callable:
                 await cleanup_session(args[0])
             raise SystemExit(1)
 
-    return wrapper
+    return cast(Callable[..., Awaitable[T]], wrapper)
