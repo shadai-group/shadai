@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Coroutine, Literal, Optional
+from typing import List, Literal, Optional
 
 from requests.exceptions import RequestException
 from rich.console import Console
@@ -20,9 +20,10 @@ from rich.table import Table
 
 from shadai.core.adapter import IntelligenceAdapter
 from shadai.core.decorators import handle_errors
+from shadai.core.enums import AIModels, QueryMode
 from shadai.core.exceptions import IngestionError
 from shadai.core.files import FileManager
-from shadai.core.schemas import SessionResponse
+from shadai.core.schemas import Query, QueryResponse, SessionResponse
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -52,10 +53,10 @@ class Session:
         session_id: Optional[str] = None,
         alias: Optional[str] = None,
         type: Literal["light", "standard", "deep"] = "standard",
-        llm_model: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        llm_model: AIModels = AIModels.CLAUDE_3_5_HAIKU,
         llm_temperature: float = 0.7,
         llm_max_tokens: int = 4096,
-        query_mode: str = "hybrid",
+        query_mode: QueryMode = QueryMode.HYBRID,
         language: str = "es",
         delete: bool = True,
     ) -> None:
@@ -65,10 +66,10 @@ class Session:
         self._session_id = session_id
         self._alias = alias
         self._type = type
-        self._llm_model = llm_model
+        self._llm_model = llm_model.value
         self._llm_temperature = llm_temperature
         self._llm_max_tokens = llm_max_tokens
-        self._query_mode = query_mode
+        self._query_mode = query_mode.value
         self._language = language
         self._delete = delete
 
@@ -81,40 +82,20 @@ class Session:
         """
         return self._session_id
 
-    def _run_async(self, task: Coroutine) -> Any:
-        """Helper method to run async code in sync context.
-
-        Args:
-            task (Coroutine): The async task to run.
-
-        Returns:
-            Any: The result of the async task.
-        """
-        try:
-            return asyncio.run(task)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(task)
-            finally:
-                loop.close()
-                asyncio.set_event_loop(None)
-
     @handle_errors
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Session":
         """Async context manager entry.
 
         Returns:
             Session: The session object
         """
         console.print("\n[bold blue]🚀 Initializing Intelligence Session...[/]")
-        self._session_id = await self._aget()
+        self._session_id = await self._get()
         console.print("[bold green]✓[/] Session initialized successfully\n")
         return self
 
     @handle_errors
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit.
 
         Args:
@@ -123,10 +104,10 @@ class Session:
             exc_tb (traceback): The exception traceback
         """
         if self._delete:
-            await self.adelete()
+            await self.delete()
 
     @handle_errors
-    async def _aget(self) -> str:
+    async def _get(self) -> str:
         """Get the session ID."""
         if self._session_id or self._alias:
             with console.status("[bold yellow]Getting existing session..."):
@@ -142,22 +123,13 @@ class Session:
                         f"[bold green]✓ Retrieved existing session ->[/] alias: [bold white]{session.alias}[/] ([bold white]ID:[/] {session.session_id})"
                     )
             if session is None and self._alias is not None:
-                session = await self._acreate()
+                session = await self._create()
         else:
-            session = await self._acreate()
+            session = await self._create()
         return session.session_id
 
     @handle_errors
-    def _get(self) -> str:
-        """Get the session ID.
-
-        Returns:
-            str: The session ID
-        """
-        return self._run_async(self._aget())
-
-    @handle_errors
-    async def _acreate(self) -> SessionResponse:
+    async def _create(self) -> SessionResponse:
         """Create a new session."""
         with console.status(f"[bold yellow]Creating new {self._type} session...\n\n"):
             session = await self._adapter.create_session(
@@ -188,16 +160,7 @@ class Session:
         return session
 
     @handle_errors
-    def _create(self) -> SessionResponse:
-        """Create a new session.
-
-        Returns:
-            SessionResponse: The session response
-        """
-        return self._run_async(self._acreate())
-
-    @handle_errors
-    async def aingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
+    async def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
         """Upload files from the input directory in parallel for processing.
 
         Args:
@@ -264,25 +227,15 @@ class Session:
             logger.error("Ingestion failed: %s", str(e))
             raise IngestionError(f"Failed to ingest files: {str(e)}") from e
 
-    def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
-        """Upload files from the input directory in parallel for processing.
-
-        Args:
-            input_dir (str): The path to the directory containing the files to process.
-            max_concurrent_uploads (int): The maximum number of files to upload concurrently.
-        """
-        return self._run_async(
-            self.aingest(
-                input_dir=input_dir, max_concurrent_uploads=max_concurrent_uploads
-            )
-        )
-
     @handle_errors
-    async def aquery(self, query: str, display_in_console: bool = False) -> str:
+    async def query(
+        self, query: str, role: Optional[str] = None, display_in_console: bool = False
+    ) -> str:
         """Query the processed data.
 
         Args:
             query (str): The query to process.
+            role (Optional[str]): The role to use for the query.
             display_in_console (bool): Whether to display the query in the console.
 
         Returns:
@@ -296,7 +249,7 @@ class Session:
                 raise ValueError("Session ID is required")
             with console.status("[bold yellow]Processing query...[/]", spinner="dots"):
                 response = await self._adapter.query(
-                    session_id=self._session_id, query=query
+                    session_id=self._session_id, query=query, role=role
                 )
 
             if display_in_console:
@@ -309,22 +262,87 @@ class Session:
             logger.error("Query failed: %s", str(e))
             raise
 
-    def query(self, query: str, display_in_console: bool = False) -> str:
-        """Query the processed data.
+    @handle_errors
+    async def multiple_queries(self, queries: List[Query]) -> List[QueryResponse]:
+        """Query the processed data with multiple queries in parallel.
 
         Args:
-            query (str): The query to process.
-            display_in_console (bool): Whether to display the query in the console.
+            queries (List[Query]): The queries to process.
 
         Returns:
-            str: The query response.
+            List[QueryResponse]: The query responses.
         """
-        return self._run_async(
-            self.aquery(query=query, display_in_console=display_in_console)
-        )
+        try:
+            if not self._session_id:
+                raise ValueError("Session ID is required")
+
+            console.print(
+                f"\n[bold blue]Processing {len(queries)} queries in parallel...[/]"
+            )
+
+            with console.status(
+                "[bold yellow]Processing multiple queries...[/]", spinner="dots"
+            ):
+                # Create async tasks for each query
+                query_tasks = [
+                    self._adapter.query(
+                        session_id=self._session_id, query=query.query, role=query.role
+                    )
+                    for query in queries
+                ]
+
+                # Execute all queries in parallel
+                responses = await asyncio.gather(*query_tasks, return_exceptions=True)
+
+                # Process results into QueryResponse objects
+                results: List[QueryResponse] = []
+                for i, (query, response) in enumerate(zip(queries, responses)):
+                    if isinstance(response, Exception):
+                        console.print(
+                            f"[bold red]Query {i+1} failed: {str(response)}[/]"
+                        )
+                        results.append(
+                            QueryResponse(
+                                query=query,
+                                response=f"Error: {str(response)}",
+                                display_in_console=query.display_in_console,
+                            )
+                        )
+                    else:
+                        results.append(
+                            QueryResponse(
+                                query=query,
+                                response=response,
+                                display_in_console=query.display_in_console,
+                            )
+                        )
+
+                # Display results if requested
+                displayed_count = 0
+                for result in results:
+                    if result.display_in_console:
+                        displayed_count += 1
+                        console.print(
+                            Panel(result.query.query, title=f"Query {displayed_count}")
+                        )
+                        console.print(
+                            Panel(
+                                result.response, title="Response", border_style="green"
+                            )
+                        )
+
+            console.print(
+                f"[bold green]✓[/] {len(queries)} queries processed successfully"
+            )
+            return results
+
+        except Exception as e:
+            console.print("[bold red]✗ Multiple queries failed[/]")
+            logger.error("Multiple queries failed: %s", str(e))
+            raise
 
     @handle_errors
-    async def asummarize(self, display_in_console: bool = False) -> str:
+    async def summarize(self, display_in_console: bool = False) -> str:
         """Get session summary.
 
         Args:
@@ -339,25 +357,14 @@ class Session:
         with console.status(
             "[bold yellow]Getting session summary...[/]", spinner="dots"
         ):
-            summary = await self._adapter._get_session_summary(self._session_id)
+            summary = await self._adapter.get_knowledge_summary(self._session_id)
         if display_in_console:
             console.print(Panel(summary, title="Session Summary", border_style="green"))
         console.print("[bold green]✓[/] Session summary retrieved successfully")
         return summary
 
-    def summarize(self, display_in_console: bool = False) -> str:
-        """Get session summary.
-
-        Args:
-            display_in_console (bool): Whether to display the summary in the console.
-
-        Returns:
-            str: The session summary.
-        """
-        return self._run_async(self.asummarize(display_in_console=display_in_console))
-
     @handle_errors
-    async def aarticle(self, topic: str, display_in_console: bool = False) -> str:
+    async def article(self, topic: str, display_in_console: bool = False) -> str:
         """Create an article on the topic.
 
         Args:
@@ -372,7 +379,7 @@ class Session:
         if not self._session_id:
             raise ValueError("Session ID is required")
         with console.status("[bold yellow]Creating article...[/]", spinner="dots"):
-            article = await self._adapter._create_article(
+            article = await self._adapter.create_article(
                 session_id=self._session_id, topic=topic
             )
         if display_in_console:
@@ -380,22 +387,8 @@ class Session:
         console.print("[bold green]✓[/] Article created successfully")
         return article
 
-    def article(self, topic: str, display_in_console: bool = False) -> str:
-        """Create an article on the topic.
-
-        Args:
-            topic (str): The topic to create the article on.
-            display_in_console (bool): Whether to display the article in the console.
-
-        Returns:
-            str: The article.
-        """
-        return self._run_async(
-            self.aarticle(topic=topic, display_in_console=display_in_console)
-        )
-
     @handle_errors
-    async def acall(
+    async def complete(
         self,
         prompt: str,
         display_prompt: bool = False,
@@ -416,7 +409,7 @@ class Session:
             console.print(Panel(prompt, title="Prompt"))
 
         with console.status("[bold yellow]Calling Agent LLM...[/]", spinner="dots"):
-            response = await self._adapter._llm_call(
+            response = await self._adapter.llm_call(
                 session_id=self._session_id, prompt=prompt
             )
         if display_in_console:
@@ -424,24 +417,8 @@ class Session:
         console.print("[bold green]✓[/] Agent LLM call processed successfully")
         return response
 
-    def call(
-        self, prompt: str, display_prompt: bool = False, display_in_console: bool = True
-    ) -> str:
-        """Call the LLM with the prompt.
-
-        Args:
-            prompt (str): The prompt to call the LLM with.
-        """
-        return self._run_async(
-            self.acall(
-                prompt=prompt,
-                display_prompt=display_prompt,
-                display_in_console=display_in_console,
-            )
-        )
-
     @handle_errors
-    async def achat(
+    async def chat(
         self,
         message: str,
         system_prompt: Optional[str] = None,
@@ -469,14 +446,14 @@ class Session:
 
         with console.status("[bold yellow]Chatting with LLM...[/]", spinner="dots"):
             if use_history:
-                response = await self._adapter._chat(
+                response = await self._adapter.chat(
                     session_id=self._session_id,
                     message=message,
                     system_prompt=system_prompt,
                 )
             else:
                 prompt = f"System prompt: {system_prompt}\n\n User message: {message}"
-                response = await self._adapter._llm_call(
+                response = await self._adapter.llm_call(
                     session_id=self._session_id,
                     prompt=prompt,
                 )
@@ -486,34 +463,22 @@ class Session:
         console.print("[bold green]✓[/] Chat processed successfully")
         return response
 
-    def chat(
-        self,
-        message: str,
-        system_prompt: Optional[str] = None,
-        use_history: bool = True,
-        display_in_console: bool = True,
-    ) -> str:
-        """Chat with the LLM using the session context and knowledge base.
+    @handle_errors
+    async def cleanup_chat(self) -> None:
+        """Cleanup the chat history.
 
-        Args:
-            message (str): The message to send to the LLM
-            system_prompt (Optional[str]): The system prompt to use for the chat
-            use_history (bool): Whether to use the history of the chat
-            display_in_console (bool): Whether to display the chat in the console
-
-        Returns:
-            str: The chat response
+        Raises:
+            ValueError: If the session ID is not set.
         """
-        return self._run_async(
-            self.achat(
-                message=message,
-                system_prompt=system_prompt,
-                use_history=use_history,
-                display_in_console=display_in_console,
-            )
-        )
+        if not self._session_id:
+            raise ValueError("Session ID is required")
 
-    async def adelete(self) -> None:
+        with console.status("[bold blue]🚀 Cleaning up chat history...[/]"):
+            await self._adapter.cleanup_chat(session_id=self._session_id)
+            console.print("[bold green]✓[/] Chat history cleaned up successfully")
+
+    @handle_errors
+    async def delete(self) -> None:
         """Delete the session.
 
         Raises:
@@ -527,11 +492,3 @@ class Session:
                 session_id=self._session_id, alias=self._alias
             )
             console.print("[bold green]✓[/] Session cleaned up successfully")
-
-    def delete(self) -> None:
-        """Delete the session.
-
-        Raises:
-            ValueError: If the session ID is not set.
-        """
-        return self._run_async(self.adelete())

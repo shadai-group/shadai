@@ -1,4 +1,3 @@
-import asyncio
 from typing import List, Optional
 
 from rich.console import Console
@@ -15,14 +14,14 @@ class Manager:
     def __init__(self) -> None:
         self._adapter = IntelligenceAdapter()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Manager":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         pass
 
     @handle_errors
-    async def alist_sessions(
+    async def list_sessions(
         self, show_in_console: bool = True
     ) -> List[SessionResponse]:
         """
@@ -57,17 +56,8 @@ class Manager:
         else:
             return await self._adapter.list_sessions()
 
-    def list_sessions(self, show_in_console: bool = True) -> List[SessionResponse]:
-        """
-        List all sessions related to an user
-
-        Returns:
-            List[SessionResponse]: A list of session responses
-        """
-        return asyncio.run(self.alist_sessions(show_in_console=show_in_console))
-
     @handle_errors
-    async def adelete_session(
+    async def delete_session(
         self, session_id: Optional[str] = None, alias: Optional[str] = None
     ) -> None:
         """
@@ -78,12 +68,13 @@ class Manager:
 
         with console.status("[bold blue]🚀 Cleaning up session...[/]"):
             await self._adapter.delete_session(session_id=session_id, alias=alias)
-            console.print("[bold green]✓[/] Session cleaned up successfully")
+            console.print("[bold green]✓[/] Session deleted successfully")
 
-    def delete_session(
-        self, session_id: Optional[str] = None, alias: Optional[str] = None
-    ) -> None:
+    @handle_errors
+    async def cleanup_namespace(self) -> None:
         """
-        Delete a session by its ID
+        Cleanup the namespace
         """
-        return asyncio.run(self.adelete_session(session_id=session_id, alias=alias))
+        with console.status("[bold blue]🚀 Cleaning up namespace...[/]"):
+            await self._adapter.cleanup_namespace()
+            console.print("[bold green]✓[/] Namespace cleaned up successfully")
