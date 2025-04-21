@@ -350,32 +350,50 @@ For interactive conversations that maintain context:
 # examples/chat_with_data_and_history.py
 import asyncio
 import os
+import sys
+
+# Add the parent directory to sys.path to access the shadai package
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from shadai.core.session import Session
 
 input_dir = os.path.join(os.path.dirname(__file__), "data")
 
-async def main():
-    async with Session(type="standard", delete=True) as session:
-        # Ingest documents to provide context
-        await session.ingest(input_dir=input_dir)
 
-        # Start a chat session with the AI
-        # The chat method enables conversational interaction with your documents
+async def chat_with_data_and_history():
+    """
+    This function chats with the data and history.
+    """
+    async with Session(type="standard", delete=True) as session:
+        await session.ingest(input_dir=input_dir)
         await session.chat(
             message="¿Qué dice la constitución sobre la libertad de expresión?",
             system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
-            use_history=True,  # Maintain conversation history for context
-            display_in_console=True,  # Print the response in the console
+            use_history=True,
+            display_in_console=True,
         )
-
-        # You can continue the conversation with additional chat calls
-        # Each message will build on the context from previous messages
-
-        # When you're done, you can clean up the chat history if you want
+        # This is optional to run, it cleans up the chat history
         await session.cleanup_chat()
 
+
+async def chat_only_with_history():
+    """
+    This function chats only with the history.
+    """
+    async with Session(type="standard", delete=True) as session:
+        await session.chat(
+            message="¿Qué dice la constitución sobre la libertad de expresión?",
+            system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
+            use_history=True,
+            display_in_console=True,
+        )
+        # This is optional to run, it cleans up the chat history
+        await session.cleanup_chat()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(chat_with_data_and_history())
+    asyncio.run(chat_only_with_history())
 ```
 
 ### Creating a Tool Agent

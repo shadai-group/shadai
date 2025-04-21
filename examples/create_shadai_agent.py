@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from typing import Dict
@@ -55,3 +56,7 @@ async def main():
             function=get_constitutional_article,
         )
         await agent.call(article_id="1")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
