@@ -215,11 +215,45 @@ class Session:
                     await asyncio.gather(*upload_tasks)
 
             console.print("\n[bold blue]⚙️ Processing uploaded files...[/]")
-            with console.status(
-                "[bold yellow]Processing... This may take a few minutes[/]",
-                spinner="dots",
-            ):
-                await self._adapter.ingest(session_id=self._session_id)
+
+            # Create a progress bar for the processing phase
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                expand=True,
+                refresh_per_second=10,
+            ) as processing_progress:
+                processing_task_id = processing_progress.add_task(
+                    "[bold yellow]Processing Documents", total=100, start=True
+                )
+
+                try:
+                    async for progress in self._adapter.ingest(
+                        session_id=self._session_id
+                    ):
+                        advance = progress * 100
+
+                        if advance < 100.0:
+                            processing_progress.update(
+                                processing_task_id,
+                                advance=advance,
+                                visible=True,
+                                refresh=True,
+                            )
+                        else:
+                            processing_progress.update(
+                                processing_task_id,
+                                completed=advance,
+                                visible=True,
+                                refresh=True,
+                            )
+                            processing_progress.stop()
+                except Exception as e:
+                    raise IngestionError(f"Processing failed: {str(e)}") from e
+
             console.print("[bold green]✓[/] All files processed successfully")
             console.print("\n[bold green]✨ Ingestion completed successfully![/]\n")
         except Exception as e:

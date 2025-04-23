@@ -49,6 +49,7 @@ class JobResponse(BaseModel):
     session_id: str
     job_type: JobType
     status: JobStatus
+    progress: Optional[float] = None
     result: Optional[str] = "in progress"
 
 
