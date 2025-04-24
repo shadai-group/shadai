@@ -215,11 +215,54 @@ class Session:
                     await asyncio.gather(*upload_tasks)
 
             console.print("\n[bold blue]⚙️ Processing uploaded files...[/]")
-            with console.status(
-                "[bold yellow]Processing... This may take a few minutes[/]",
-                spinner="dots",
-            ):
-                await self._adapter.ingest(session_id=self._session_id)
+
+            # Create a progress bar for the processing phase
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                expand=True,
+                refresh_per_second=10,
+            ) as processing_progress:
+                processing_task_id = processing_progress.add_task(
+                    "[bold yellow]Processing Documents", total=100, start=True
+                )
+
+                try:
+                    completing = False
+
+                    async for progress in self._adapter.ingest(
+                        session_id=self._session_id
+                    ):
+                        progress_percentage = progress * 100
+
+                        if progress >= 0.999:
+                            if not completing:
+                                completing = True
+                                processing_progress.update(
+                                    processing_task_id,
+                                    description="[bold yellow]Finalizing...",
+                                    completed=99,
+                                    refresh=True,
+                                )
+
+                            processing_progress.update(
+                                processing_task_id,
+                                description="[bold green]Processing Complete",
+                                completed=100,
+                                refresh=True,
+                            )
+                        else:
+                            processing_progress.update(
+                                processing_task_id,
+                                completed=progress_percentage,
+                                refresh=True,
+                            )
+                except Exception as e:
+                    raise IngestionError(f"Processing failed: {str(e)}") from e
+
             console.print("[bold green]✓[/] All files processed successfully")
             console.print("\n[bold green]✨ Ingestion completed successfully![/]\n")
         except Exception as e:

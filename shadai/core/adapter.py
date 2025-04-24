@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import random
-from typing import Any, AsyncGenerator, Dict, Literal, Optional
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
 
 from dotenv import load_dotenv
 from requests import Session
@@ -185,6 +185,38 @@ class IntelligenceAdapter:
             if response.status in {JobStatus.COMPLETED, JobStatus.FAILED}:
                 return response
 
+    async def _wait_until_final_status_with_progress(
+        self, poll_generator: AsyncGenerator[JobResponse, None], timeout: float
+    ) -> AsyncGenerator[Union[float, JobResponse], None]:
+        """
+        Wait until job reaches a final status (COMPLETED or FAILED), yielding progress updates.
+        This is specifically designed for operations that need progress tracking like ingestion.
+
+        Args:
+            poll_generator: The polling generator
+            timeout: Maximum time to wait in seconds
+
+        Yields:
+            - Float values representing progress (0.0 to 1.0) during processing
+            - Final JobResponse with COMPLETED or FAILED status
+
+        Raises:
+            TimeoutError if timeout is reached
+        """
+        while True:
+            response = await asyncio.wait_for(
+                poll_generator.__anext__(), timeout=timeout
+            )
+
+            # Check if progress is available and not None
+            if hasattr(response, "progress") and response.progress is not None:
+                yield response.progress  # Yield the progress float
+
+            # If job is completed or failed, yield the final response and stop
+            if response.status in {JobStatus.COMPLETED, JobStatus.FAILED}:
+                yield response
+                break
+
     async def _wait_for_job(
         self,
         job_id: str,
@@ -256,79 +288,141 @@ class IntelligenceAdapter:
                 f"Error waiting for job {job_id}: {str(e)}"
             ) from e
 
-    async def ingest(self, session_id: str, max_retries: int = 3) -> str:
+    async def _wait_for_ingestion_job(
+        self,
+        job_id: str,
+        polling_interval: float = 30.0,
+        timeout: float = 3600,
+    ) -> AsyncGenerator[float, None]:
         """
-        Start ingestion process and wait for completion with enhanced error handling.
+        Wait for ingestion job completion with extended timeout and robust error handling
+        specifically designed for long-running ingestion tasks.
+
+        Args:
+            job_id (str): The job identifier to wait for
+            polling_interval (float): Time in seconds between status checks. Defaults to 30.0.
+            timeout (float): Maximum time to wait in seconds. Defaults to 3600 (1 hour).
+
+        Yields:
+            float: Progress values representing progress (0.0 to 1.0) during processing
+
+        Raises:
+            IntelligenceAPIError: If job fails, times out, or exceeds max attempts
+        """
+        try:
+            yield 0.01
+            current_progress = 0.01
+
+            poll_generator = self._poll_job(job_id=job_id, interval=polling_interval)
+
+            async for (
+                progress_or_response
+            ) in self._wait_until_final_status_with_progress(
+                poll_generator=poll_generator, timeout=timeout
+            ):
+                if isinstance(progress_or_response, float):
+                    if progress_or_response > current_progress:
+                        current_progress = progress_or_response
+                        yield min(0.99, current_progress)
+                    continue
+
+                if hasattr(progress_or_response, "status"):
+                    if progress_or_response.status == JobStatus.FAILED:
+                        error_message = (
+                            progress_or_response.result
+                            or "Job failed without specific error"
+                        )
+                        logger.error(f"Ingestion job {job_id} failed: {error_message}")
+                        raise IntelligenceAPIError(
+                            f"Ingestion job {job_id} failed: {error_message}"
+                        )
+
+                    # If job completed successfully, mark completion but don't yield final progress yet
+                    if progress_or_response.status == JobStatus.COMPLETED:
+                        # Let's do any final processing before yielding 100%
+                        # This ensures the backend is truly ready
+                        await asyncio.sleep(1)  # Brief pause to ensure completion
+                        # Now yield 100% to indicate completion
+                        yield 1.0
+                        return
+
+        except asyncio.TimeoutError:
+            logger.error(f"Ingestion job {job_id} timed out after {timeout} seconds")
+            raise IntelligenceAPIError(
+                f"Ingestion job {job_id} timed out after {timeout} seconds. "
+            )
+        except Exception as e:
+            logger.error(f"Error waiting for ingestion job {job_id}: {str(e)}")
+            raise IntelligenceAPIError(
+                f"Error waiting for ingestion job {job_id}: {str(e)}"
+            ) from e
+
+    async def ingest(self, session_id: str) -> AsyncGenerator[float, None]:
+        """
+        Start ingestion process and yield progress values as available.
+        This method only yields progress updates (0.0-1.0), not the final result.
 
         Args:
             session_id (str): The session identifier for ingestion
-            max_retries (int): Maximum number of retries for transient errors
 
-        Returns:
-            str: Result of the ingestion process
+        Yields:
+            float: Progress values representing progress (0.0 to 1.0) during processing
 
         Raises:
-            IntelligenceAPIError: If ingestion fails after all retries
+            IntelligenceAPIError: If ingestion fails
         """
-        retries = 0
-        last_error = None
+        try:
+            # Try to start the ingestion process
+            response = await self._make_request(
+                method="POST", endpoint=f"/ingestion/{session_id}"
+            )
 
-        while retries < max_retries:
+            if not response or "job_id" not in response:
+                # Handle case where response is None or missing job_id
+                logger.warning(
+                    f"Ingestion request returned invalid response: {response}"
+                )
+                raise IntelligenceAPIError(
+                    f"Ingestion failed: Invalid API response - {response}"
+                )
+
+            # Wait for the job and yield progress updates
+            job_id = response.get("job_id")
+
+            # Track if we've yielded the final 100% progress
+            final_progress_yielded = False
+
+            # Pass through the progress updates from the ingestion job handler
+            async for progress in self._wait_for_ingestion_job(
+                job_id=job_id,
+                polling_interval=10,  # Use faster polling interval for more responsive updates
+                timeout=3600,
+            ):
+                # Check if this is the final 100% progress update
+                if progress >= 0.999:
+                    final_progress_yielded = True
+
+                # Pass the progress value to the caller
+                yield progress
+
+            # If we somehow exited without yielding 100%, yield it now
+            if not final_progress_yielded:
+                yield 1.0
+
+            # Additional verification that the job truly completed
             try:
-                # Try to start the ingestion process
-                response = await self._make_request(
-                    method="POST", endpoint=f"/ingestion/{session_id}"
-                )
-
-                if not response or "job_id" not in response:
-                    # Handle case where response is None or missing job_id
+                final_status = await self._get_job_status(job_id=job_id)
+                if final_status.status != JobStatus.COMPLETED:
                     logger.warning(
-                        f"Ingestion request returned invalid response: {response} "
-                        f"(attempt {retries + 1}/{max_retries})"
+                        f"Ingestion job {job_id} reported completion but status is {final_status.status}"
                     )
-                    retries += 1
-                    await asyncio.sleep(2**retries)  # Exponential backoff
-                    continue
-
-                # Wait for the job to complete with enhanced timeout
-                return await self._wait_for_job(
-                    job_id=response.get("job_id"),
-                    polling_interval=10,
-                    timeout=600,
-                    max_retries=5,
-                )
-
             except Exception as e:
-                last_error = e
-                # Check if this is a NoneType error (likely temporary service unavailability)
-                if "NoneType" in str(e):
-                    retries += 1
-                    if retries < max_retries:
-                        backoff = 2**retries
-                        logger.warning(
-                            f"Ingestion encountered temporary service unavailability "
-                            f"(attempt {retries}/{max_retries}), retrying in {backoff} seconds... Error: {str(e)}"
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
-                    else:
-                        logger.error(
-                            f"Ingestion failed after {max_retries} attempts: {str(e)}"
-                        )
-                        raise IntelligenceAPIError(
-                            f"Ingestion failed due to service unavailability after {max_retries} attempts. "
-                            f"Please try again later."
-                        ) from e
-                else:
-                    # For other errors, just raise immediately
-                    logger.error(f"Ingestion failed: {str(e)}")
-                    raise IntelligenceAPIError(f"Ingestion failed: {str(e)}") from e
+                # Log but don't propagate - we've already yielded final progress
+                logger.warning(f"Error during final job status check: {str(e)}")
 
-        # This should only be reached if all retries are exhausted
-        logger.error(f"Ingestion failed after {max_retries} attempts")
-        raise IntelligenceAPIError(
-            f"Ingestion failed after {max_retries} attempts: {str(last_error)}"
-        )
+        except Exception as e:
+            logger.error(f"Ingestion failed: {str(e)}")
+            raise IntelligenceAPIError(f"Ingestion failed: {str(e)}") from e
 
     async def _handle_job_with_retries(
         self,
@@ -483,7 +577,7 @@ class IntelligenceAdapter:
             logger.error("Failed to delete session: %s", str(e))
             raise IntelligenceAPIError(f"Session deletion failed: {str(e)}") from e
 
-    async def list_sessions(self):
+    async def list_sessions(self) -> List[SessionResponse]:
         """
         List all sessions related to an user
 
