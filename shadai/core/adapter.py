@@ -310,26 +310,23 @@ class IntelligenceAdapter:
             IntelligenceAPIError: If job fails, times out, or exceeds max attempts
         """
         try:
-            # Start with initial progress
             yield 0.01
+            current_progress = 0.01
 
-            # Create a generator that polls the job status
             poll_generator = self._poll_job(job_id=job_id, interval=polling_interval)
 
-            # Process updates from the backend
             async for (
                 progress_or_response
             ) in self._wait_until_final_status_with_progress(
                 poll_generator=poll_generator, timeout=timeout
             ):
-                # If it's a float, it's a progress update
                 if isinstance(progress_or_response, float):
-                    yield progress_or_response
+                    if progress_or_response > current_progress:
+                        current_progress = progress_or_response
+                        yield min(0.99, current_progress)
                     continue
 
-                # If we get here, it's the final JobResponse
                 if hasattr(progress_or_response, "status"):
-                    # Check if job failed
                     if progress_or_response.status == JobStatus.FAILED:
                         error_message = (
                             progress_or_response.result
@@ -340,8 +337,12 @@ class IntelligenceAdapter:
                             f"Ingestion job {job_id} failed: {error_message}"
                         )
 
-                    # If job completed successfully, yield 100% progress
+                    # If job completed successfully, mark completion but don't yield final progress yet
                     if progress_or_response.status == JobStatus.COMPLETED:
+                        # Let's do any final processing before yielding 100%
+                        # This ensures the backend is truly ready
+                        await asyncio.sleep(1)  # Brief pause to ensure completion
+                        # Now yield 100% to indicate completion
                         yield 1.0
                         return
 
@@ -376,12 +377,48 @@ class IntelligenceAdapter:
                 method="POST", endpoint=f"/ingestion/{session_id}"
             )
 
+            if not response or "job_id" not in response:
+                # Handle case where response is None or missing job_id
+                logger.warning(
+                    f"Ingestion request returned invalid response: {response}"
+                )
+                raise IntelligenceAPIError(
+                    f"Ingestion failed: Invalid API response - {response}"
+                )
+
+            # Wait for the job and yield progress updates
+            job_id = response.get("job_id")
+
+            # Track if we've yielded the final 100% progress
+            final_progress_yielded = False
+
+            # Pass through the progress updates from the ingestion job handler
             async for progress in self._wait_for_ingestion_job(
-                job_id=response.get("job_id"),
+                job_id=job_id,
                 polling_interval=10,  # Use faster polling interval for more responsive updates
                 timeout=3600,
             ):
+                # Check if this is the final 100% progress update
+                if progress >= 0.999:
+                    final_progress_yielded = True
+
+                # Pass the progress value to the caller
                 yield progress
+
+            # If we somehow exited without yielding 100%, yield it now
+            if not final_progress_yielded:
+                yield 1.0
+
+            # Additional verification that the job truly completed
+            try:
+                final_status = await self._get_job_status(job_id=job_id)
+                if final_status.status != JobStatus.COMPLETED:
+                    logger.warning(
+                        f"Ingestion job {job_id} reported completion but status is {final_status.status}"
+                    )
+            except Exception as e:
+                # Log but don't propagate - we've already yielded final progress
+                logger.warning(f"Error during final job status check: {str(e)}")
 
         except Exception as e:
             logger.error(f"Ingestion failed: {str(e)}")

@@ -231,26 +231,35 @@ class Session:
                 )
 
                 try:
+                    completing = False
+
                     async for progress in self._adapter.ingest(
                         session_id=self._session_id
                     ):
-                        advance = progress * 100
+                        progress_percentage = progress * 100
 
-                        if advance < 100.0:
+                        if progress >= 0.999:
+                            if not completing:
+                                completing = True
+                                processing_progress.update(
+                                    processing_task_id,
+                                    description="[bold yellow]Finalizing...",
+                                    completed=99,
+                                    refresh=True,
+                                )
+
                             processing_progress.update(
                                 processing_task_id,
-                                advance=advance,
-                                visible=True,
+                                description="[bold green]Processing Complete",
+                                completed=100,
                                 refresh=True,
                             )
                         else:
                             processing_progress.update(
                                 processing_task_id,
-                                completed=advance,
-                                visible=True,
+                                completed=progress_percentage,
                                 refresh=True,
                             )
-                            processing_progress.stop()
                 except Exception as e:
                     raise IngestionError(f"Processing failed: {str(e)}") from e
 
