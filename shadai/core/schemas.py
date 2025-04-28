@@ -16,7 +16,6 @@ class SessionCreate(BaseModel):
 
 class SessionResponse(SessionCreate):
     session_id: str
-    status: str
     cost: float = 0
 
 

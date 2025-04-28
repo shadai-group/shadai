@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import random
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Tuple, Union
 
 from dotenv import load_dotenv
 from requests import Session
@@ -31,27 +31,39 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
-        self.core_base_url = "https://core.shadai.ai"
+        self.core_base_url = "https://dev.core.shadai.ai"
+        self.core_api_base_url = "https://dev.core.api.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
         self._session = Session()
         self._session.headers.update({"ApiKey": self.api_key})
 
-    def _construct_url(self, endpoint: str) -> str:
+    def _construct_url(self, endpoint: str, use_core_api_base_url: bool = False) -> str:
         """Construct the full URL from the base URL and endpoint."""
-        if not self.core_base_url.endswith("/"):
-            self.core_base_url += "/"
+        if use_core_api_base_url:
+            base_url = self.core_api_base_url
+        else:
+            base_url = self.core_base_url
+        if not base_url.endswith("/"):
+            base_url += "/"
         if endpoint.startswith("/"):
             endpoint = endpoint[1:]
-        return self.core_base_url + endpoint
+        return base_url + endpoint
 
     @retry_on_server_error()
     async def _make_request(
-        self, method: str, endpoint: str, **kwargs: Any
-    ) -> Dict[str, Any]:
+        self,
+        method: str,
+        endpoint: str,
+        return_status_code: bool = False,
+        use_core_api_base_url: bool = False,
+        **kwargs: Any,
+    ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], int]]:
         """Make HTTP request with retry logic and error handling."""
-        url = self._construct_url(endpoint)
+        url = self._construct_url(
+            endpoint=endpoint, use_core_api_base_url=use_core_api_base_url
+        )
         kwargs["timeout"] = kwargs.get("timeout", 25)
 
         response = self._session.request(method=method, url=url, **kwargs)
@@ -61,7 +73,48 @@ class IntelligenceAdapter:
             )
         response.raise_for_status()
         json_response = response.json()
+        if return_status_code:
+            return json_response.get("data"), response.status_code
         return json_response.get("data")
+
+    async def warm_up(self, total_timeout: float = 120.0) -> bool:
+        """
+        Ensures the Lambda service is ready by hitting the health endpoint.
+        Keeps trying until the endpoint returns 200 OK or times out.
+
+        Args:
+            total_timeout: Maximum time to spend on warm-up in seconds. Defaults to 120.0 (2 minutes).
+
+        Returns:
+            bool: True if service is ready, False otherwise
+        """
+        logger.debug("Checking service health...")
+
+        start_time = asyncio.get_event_loop().time()
+
+        try:
+            _, status_code = await self._make_request(
+                method="GET", endpoint="/health", return_status_code=True, timeout=3
+            )
+            if status_code == 200:
+                logger.debug("Service is warm, health check successful")
+                return True
+        except Exception:
+            pass
+
+        while (asyncio.get_event_loop().time() - start_time) < total_timeout:
+            try:
+                _, status_code = await self._make_request(
+                    method="GET", endpoint="/health", return_status_code=True, timeout=5
+                )
+                if status_code == 200:
+                    logger.debug("Service is now warm, health check successful")
+                    return True
+            except Exception:
+                await asyncio.sleep(5)
+
+        logger.warning(f"Service warm-up timed out after {total_timeout} seconds")
+        return False
 
     async def _get_job_status(
         self, job_id: str, max_retries: int = 5, retry_delay: float = 1.0
@@ -82,11 +135,11 @@ class IntelligenceAdapter:
         """
         for attempt in range(max_retries):
             try:
-                response = await self._make_request("GET", f"/jobs/{job_id}")
+                response = await self._make_request(
+                    method="GET", endpoint=f"/jobs/{job_id}", use_core_api_base_url=True
+                )
                 if response is None:
-                    # API returned None during temporary unavailability
                     if attempt < max_retries - 1:
-                        # Use exponential backoff with jitter
                         backoff_delay = (
                             retry_delay * (2**attempt) * (1 + random.random() * 0.1)
                         )
@@ -105,7 +158,6 @@ class IntelligenceAdapter:
 
             except Exception as e:
                 if attempt < max_retries - 1 and "NoneType" in str(e):
-                    # Handle NoneType errors with exponential backoff
                     backoff_delay = (
                         retry_delay * (2**attempt) * (1 + random.random() * 0.1)
                     )
@@ -136,11 +188,9 @@ class IntelligenceAdapter:
         while True:
             try:
                 response = await self._get_job_status(job_id=job_id)
-                # Reset retry counter on success
                 retries = 0
                 yield response
 
-                # If job is done, no need to continue polling
                 if response.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
                     break
 
@@ -207,12 +257,9 @@ class IntelligenceAdapter:
             response = await asyncio.wait_for(
                 poll_generator.__anext__(), timeout=timeout
             )
-
-            # Check if progress is available and not None
             if hasattr(response, "progress") and response.progress is not None:
                 yield response.progress  # Yield the progress float
 
-            # If job is completed or failed, yield the final response and stop
             if response.status in {JobStatus.COMPLETED, JobStatus.FAILED}:
                 yield response
                 break
@@ -239,51 +286,51 @@ class IntelligenceAdapter:
         Raises:
             IntelligenceAPIError: If job fails, times out, or exceeds max attempts
         """
+        is_deletion_job = "delete" in job_id.lower() or "cleanup" in job_id.lower()
+
         try:
             poll_generator = self._poll_job(job_id=job_id, interval=polling_interval)
 
-            # Use a higher timeout for _wait_until_final_status to allow for recovery from temporary unavailability
             response = await self._wait_until_final_status(
                 poll_generator=poll_generator, timeout=timeout * 1.5
             )
 
             if response.status == JobStatus.COMPLETED:
                 if response.result is None:
-                    # Special handling for None result from a completed job
-                    logger.warning(
-                        f"Job {job_id} completed but returned None result, treating as empty response"
-                    )
+                    if not is_deletion_job:
+                        logger.warning(
+                            f"Job {job_id} completed but returned None result, treating as empty response"
+                        )
                     return "Empty response from the server. The data might still be processing."
                 return response.result
 
             if response.status == JobStatus.FAILED:
-                raise IntelligenceAPIError(f"Job {job_id} failed: Unknown error")
+                error_message = response.result if response.result else "Unknown error"
 
-            # This should not happen (status not COMPLETED or FAILED)
-            logger.error(
-                f"Job {job_id} ended with unexpected status: {response.status}"
-            )
+                if is_deletion_job:
+                    return f"Job failed: {error_message}"
+                raise IntelligenceAPIError(f"Job {job_id} failed: {error_message}")
+
+            if not is_deletion_job:
+                logger.error(
+                    f"Job {job_id} ended with unexpected status: {response.status}"
+                )
             raise IntelligenceAPIError(
                 f"Job {job_id} ended with unexpected status: {response.status}"
             )
 
         except asyncio.TimeoutError:
-            # Log extra information when timeout occurs
-            logger.error(f"Job {job_id} timed out after {timeout} seconds")
+            if not is_deletion_job:
+                logger.error(f"Job {job_id} timed out after {timeout} seconds")
+
+            if is_deletion_job:
+                return f"Job failed: Timed out after {timeout} seconds"
+
             raise IntelligenceAPIError(
                 f"Job {job_id} timed out after {timeout} seconds. The service may be experiencing high load."
             )
         except Exception as e:
-            # More detailed logging for any other exceptions
             logger.error(f"Error waiting for job {job_id}: {str(e)}")
-            if "NoneType" in str(e):
-                # Handle NoneType errors specifically
-                logger.warning(
-                    f"NoneType error detected for job {job_id}, service may be temporarily unavailable"
-                )
-                raise IntelligenceAPIError(
-                    f"Service temporarily unavailable while processing job {job_id}. Please try again later."
-                ) from e
             raise IntelligenceAPIError(
                 f"Error waiting for job {job_id}: {str(e)}"
             ) from e
@@ -337,12 +384,8 @@ class IntelligenceAdapter:
                             f"Ingestion job {job_id} failed: {error_message}"
                         )
 
-                    # If job completed successfully, mark completion but don't yield final progress yet
                     if progress_or_response.status == JobStatus.COMPLETED:
-                        # Let's do any final processing before yielding 100%
-                        # This ensures the backend is truly ready
-                        await asyncio.sleep(1)  # Brief pause to ensure completion
-                        # Now yield 100% to indicate completion
+                        await asyncio.sleep(1)
                         yield 1.0
                         return
 
@@ -356,73 +399,6 @@ class IntelligenceAdapter:
             raise IntelligenceAPIError(
                 f"Error waiting for ingestion job {job_id}: {str(e)}"
             ) from e
-
-    async def ingest(self, session_id: str) -> AsyncGenerator[float, None]:
-        """
-        Start ingestion process and yield progress values as available.
-        This method only yields progress updates (0.0-1.0), not the final result.
-
-        Args:
-            session_id (str): The session identifier for ingestion
-
-        Yields:
-            float: Progress values representing progress (0.0 to 1.0) during processing
-
-        Raises:
-            IntelligenceAPIError: If ingestion fails
-        """
-        try:
-            # Try to start the ingestion process
-            response = await self._make_request(
-                method="POST", endpoint=f"/ingestion/{session_id}"
-            )
-
-            if not response or "job_id" not in response:
-                # Handle case where response is None or missing job_id
-                logger.warning(
-                    f"Ingestion request returned invalid response: {response}"
-                )
-                raise IntelligenceAPIError(
-                    f"Ingestion failed: Invalid API response - {response}"
-                )
-
-            # Wait for the job and yield progress updates
-            job_id = response.get("job_id")
-
-            # Track if we've yielded the final 100% progress
-            final_progress_yielded = False
-
-            # Pass through the progress updates from the ingestion job handler
-            async for progress in self._wait_for_ingestion_job(
-                job_id=job_id,
-                polling_interval=10,  # Use faster polling interval for more responsive updates
-                timeout=3600,
-            ):
-                # Check if this is the final 100% progress update
-                if progress >= 0.999:
-                    final_progress_yielded = True
-
-                # Pass the progress value to the caller
-                yield progress
-
-            # If we somehow exited without yielding 100%, yield it now
-            if not final_progress_yielded:
-                yield 1.0
-
-            # Additional verification that the job truly completed
-            try:
-                final_status = await self._get_job_status(job_id=job_id)
-                if final_status.status != JobStatus.COMPLETED:
-                    logger.warning(
-                        f"Ingestion job {job_id} reported completion but status is {final_status.status}"
-                    )
-            except Exception as e:
-                # Log but don't propagate - we've already yielded final progress
-                logger.warning(f"Error during final job status check: {str(e)}")
-
-        except Exception as e:
-            logger.error(f"Ingestion failed: {str(e)}")
-            raise IntelligenceAPIError(f"Ingestion failed: {str(e)}") from e
 
     async def _handle_job_with_retries(
         self,
@@ -470,42 +446,6 @@ class IntelligenceAdapter:
             f"{operation_name} returned 'Empty response' after all retry attempts. The server might still be processing the data."
         )
 
-    async def get_presigned_url(self, session_id: str, filename: str) -> str:
-        """Generate a pre-signed URL for file upload.
-
-        Args:
-            session_id (str): The session identifier
-            filename (str): The filename to upload
-
-        Returns:
-            str: The pre-signed URL
-        """
-        try:
-            response = await self._make_request(
-                method="GET",
-                endpoint=f"/ingestion/{session_id}",
-                params={"filename": filename},
-            )
-            return response.get("url")
-        except Exception as e:
-            logger.error("Failed to generate upload URL: %s", str(e))
-            raise IntelligenceAPIError(
-                f"Failed to generate upload URL: {str(e)}"
-            ) from e
-
-    async def create_session(
-        self, type: Literal["light", "standard", "deep"], **kwargs: Any
-    ) -> SessionResponse:
-        """
-        Create new processing session.
-        """
-        session_create = SessionCreate(config_name=type, **kwargs)
-        response = await self._make_request(
-            method="POST", endpoint="/sessions", json=session_create.model_dump()
-        )
-        session_response = SessionResponse.model_validate(response)
-        return session_response
-
     async def get_session(
         self, session_id: Optional[str] = None, alias: Optional[str] = None
     ) -> Optional[SessionResponse]:
@@ -521,17 +461,69 @@ class IntelligenceAdapter:
             IntelligenceAPIError: If session retrieval fails
         """
         try:
-            response = await self._make_request(
-                method="GET",
-                endpoint=f"/sessions/{session_id}",
-                params={"alias": alias},
-            )
-            if alias is not None and response is None:
+            if session_id is not None:
+                response = await self._make_request(
+                    method="GET",
+                    endpoint="/sessions/detail",
+                    use_core_api_base_url=True,
+                    params={"session_id": session_id},
+                )
+            elif alias is not None:
+                response = await self._make_request(
+                    method="GET",
+                    endpoint="/sessions/alias",
+                    use_core_api_base_url=True,
+                    params={"alias": alias},
+                )
+            if alias is not None and (response is None or not response):
                 return None
             return SessionResponse.model_validate(response)
         except Exception as e:
             logger.error("Failed to get session: %s", str(e))
             raise IntelligenceAPIError(f"Session retrieval failed: {str(e)}") from e
+
+    async def list_sessions(self) -> List[SessionResponse]:
+        """
+        List all sessions related to an user
+
+        Returns:
+            List[SessionResponse]: A list of session responses
+        """
+        try:
+            response = await self._make_request(
+                method="GET", endpoint="/sessions", use_core_api_base_url=True
+            )
+            items = response.get("items", [])
+            return [SessionResponse.model_validate(session) for session in items]
+        except Exception as e:
+            logger.error("Failed to list sessions: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to list sessions: {str(e)}") from e
+
+    async def create_session(
+        self, type: Literal["light", "standard", "deep"], **kwargs: Any
+    ) -> SessionResponse:
+        """
+        Create new processing session.
+
+        Args:
+            type: The type of session to create
+            **kwargs: Additional session parameters
+
+        Returns:
+            SessionResponse: The created session
+
+        Raises:
+            IntelligenceAPIError: If session creation fails after all retries
+        """
+        session_create = SessionCreate(config_name=type, **kwargs)
+        response = await self._make_request(
+            method="POST",
+            endpoint="/sessions",
+            json=session_create.model_dump(exclude_none=True),
+            use_core_api_base_url=True,
+        )
+        session_response = SessionResponse.model_validate(response)
+        return session_response
 
     async def delete_session(
         self, session_id: Optional[str] = None, alias: Optional[str] = None
@@ -545,18 +537,53 @@ class IntelligenceAdapter:
         Raises:
             IntelligenceAPIError: If deletion fails
         """
+        if hasattr(self, "_cleanup_in_progress") and self._cleanup_in_progress:
+            return
+
+        if session_id is None and alias is None:
+            console.print("[yellow]⚠️ Cannot delete: Session ID or alias is required[/]")
+            return
+
+        # Set flag to prevent recursive cleanup
+        setattr(self, "_cleanup_in_progress", True)
+
         try:
-            response = await self._make_request(
-                method="DELETE",
-                endpoint=f"/sessions/{session_id}",
-                params={"alias": alias},
-            )
-            await self._wait_for_job(
-                job_id=response.get("job_id"), polling_interval=5, timeout=180
-            )
+            if session_id is not None:
+                response = await self._make_request(
+                    method="DELETE",
+                    endpoint="/sessions",
+                    params={"session_id": session_id},
+                )
+            elif alias is not None:
+                response = await self._make_request(
+                    method="DELETE",
+                    endpoint="/sessions",
+                    params={"alias": alias},
+                )
+            # Handle case where response is None or missing job_id
+            if not response or "job_id" not in response:
+                console.print(
+                    "[yellow]⚠️ Session deletion returned no job ID, session may already be deleted[/]"
+                )
+                return
+
+            try:
+                # Don't raise exceptions for delete job failures
+                await self._wait_for_job(
+                    job_id=response.get("job_id"), polling_interval=5, timeout=180
+                )
+                console.print("[green]✓ Session deleted successfully[/]")
+
+            except IntelligenceAPIError:
+                console.print(
+                    "\n[yellow]⚠️ Delete operation completed with errors. The session may already be deleted or in an inconsistent state.[/]"
+                )
+
         except Exception as e:
-            logger.error("Failed to delete session: %s", str(e))
-            raise IntelligenceAPIError(f"Session deletion failed: {str(e)}") from e
+            logger.error(f"Error deleting session: {str(e)}")
+        finally:
+            # Always reset the cleanup flag, even if an exception occurs
+            setattr(self, "_cleanup_in_progress", False)
 
     async def cleanup_namespace(self) -> None:
         """
@@ -565,31 +592,142 @@ class IntelligenceAdapter:
         Raises:
             IntelligenceAPIError: If cleanup fails
         """
+        # Add a static flag to prevent recursive cleanup attempts
+        if (
+            hasattr(self, "_namespace_cleanup_in_progress")
+            and self._namespace_cleanup_in_progress
+        ):
+            console.print(
+                "[yellow]⚠️ Namespace cleanup already in progress, skipping nested cleanup request[/]"
+            )
+            return
+
+        # Set flag to prevent recursive cleanup
+        setattr(self, "_namespace_cleanup_in_progress", True)
+
         try:
             response = await self._make_request(
                 method="DELETE",
-                endpoint="/sessions/",
+                endpoint="/sessions",
             )
-            await self._wait_for_job(
-                job_id=response.get("job_id"), polling_interval=5, timeout=180
-            )
-        except Exception as e:
-            logger.error("Failed to delete session: %s", str(e))
-            raise IntelligenceAPIError(f"Session deletion failed: {str(e)}") from e
 
-    async def list_sessions(self) -> List[SessionResponse]:
-        """
-        List all sessions related to an user
+            # Handle case where response is None or missing job_id
+            if not response or "job_id" not in response:
+                console.print(
+                    "[yellow]⚠️ Namespace cleanup returned no job ID, namespace may already be empty[/]"
+                )
+                return
+
+            try:
+                # Don't raise exceptions for cleanup job failures
+                job_result = await self._wait_for_job(
+                    job_id=response.get("job_id"), polling_interval=5, timeout=180
+                )
+
+                # If the job result starts with "Job failed", it means the job failed but we're suppressing the error
+                if job_result.startswith("Job failed:"):
+                    # Only show a concise error message without the full job ID and error details
+                    console.print(
+                        "[yellow]⚠️ Cleanup operation completed with errors[/]"
+                    )
+                    console.print(
+                        "[yellow]The namespace may be in an inconsistent state[/]"
+                    )
+                else:
+                    # Normal success case
+                    console.print("[green]✓ Namespace cleaned up successfully[/]")
+
+            except IntelligenceAPIError:
+                console.print("[yellow]⚠️ Cleanup operation completed with errors[/]")
+                console.print(
+                    "[yellow]The namespace may be in an inconsistent state[/]"
+                )
+
+        except Exception as e:
+            logger.error(f"Error deleting namespace: {str(e)}")
+        finally:
+            setattr(self, "_namespace_cleanup_in_progress", False)
+
+    async def get_presigned_url(self, session_id: str, filename: str) -> str:
+        """Generate a pre-signed URL for file upload.
+
+        Args:
+            session_id (str): The session identifier
+            filename (str): The filename to upload
 
         Returns:
-            List[SessionResponse]: A list of session responses
+            str: The pre-signed URL
         """
         try:
-            response = await self._make_request(method="GET", endpoint="/sessions/")
-            return [SessionResponse.model_validate(session) for session in response]
+            response = await self._make_request(
+                method="GET",
+                endpoint="/ingestion",
+                params={"session_id": session_id, "file_name": filename},
+                use_core_api_base_url=True,
+            )
+            return response
         except Exception as e:
-            logger.error("Failed to list sessions: %s", str(e))
-            raise IntelligenceAPIError(f"Failed to list sessions: {str(e)}") from e
+            logger.error("Failed to generate upload URL: %s", str(e))
+            raise IntelligenceAPIError(
+                f"Failed to generate upload URL: {str(e)}"
+            ) from e
+
+    async def ingest(self, session_id: str) -> AsyncGenerator[float, None]:
+        """
+        Start ingestion process and yield progress values as available.
+        This method only yields progress updates (0.0-1.0), not the final result.
+
+        Args:
+            session_id (str): The session identifier for ingestion
+
+        Yields:
+            float: Progress values representing progress (0.0 to 1.0) during processing
+
+        Raises:
+            IntelligenceAPIError: If ingestion fails
+        """
+        try:
+            response = await self._make_request(
+                method="POST", endpoint="/ingestion", params={"session_id": session_id}
+            )
+
+            if not response or "job_id" not in response:
+                logger.warning(
+                    f"Ingestion request returned invalid response: {response}"
+                )
+                raise IntelligenceAPIError(
+                    f"Ingestion failed: Invalid API response - {response}"
+                )
+
+            job_id = response.get("job_id")
+
+            final_progress_yielded = False
+
+            async for progress in self._wait_for_ingestion_job(
+                job_id=job_id,
+                polling_interval=10,
+                timeout=3600,
+            ):
+                if progress >= 0.999:
+                    final_progress_yielded = True
+
+                yield progress
+
+            if not final_progress_yielded:
+                yield 1.0
+
+            try:
+                final_status = await self._get_job_status(job_id=job_id)
+                if final_status.status != JobStatus.COMPLETED:
+                    logger.warning(
+                        f"Ingestion job {job_id} reported completion but status is {final_status.status}"
+                    )
+            except Exception as e:
+                logger.warning(f"Error during final job status check: {str(e)}")
+
+        except Exception as e:
+            logger.error(f"Ingestion failed: {str(e)}")
+            raise IntelligenceAPIError(f"Ingestion failed: {str(e)}") from e
 
     async def query(
         self,
@@ -617,8 +755,8 @@ class IntelligenceAdapter:
         try:
             job_response = await self._make_request(
                 method="GET",
-                endpoint=f"/retrieval/{session_id}/query",
-                params={"query": query, "role": role},
+                endpoint="/retrieval/query",
+                params={"session_id": session_id, "query": query, "role": role},
             )
             return await self._handle_job_with_retries(
                 job_response=job_response,
@@ -641,7 +779,9 @@ class IntelligenceAdapter:
         """
         try:
             job_response = await self._make_request(
-                method="GET", endpoint=f"/retrieval/{session_id}/summary"
+                method="GET",
+                endpoint="/retrieval/summary",
+                params={"session_id": session_id},
             )
             return await self._handle_job_with_retries(
                 job_response=job_response, operation_name="Knowledge summary"
@@ -665,7 +805,8 @@ class IntelligenceAdapter:
         try:
             job_response = await self._make_request(
                 method="POST",
-                endpoint=f"/retrieval/{session_id}/article",
+                endpoint="/retrieval/article",
+                params={"session_id": session_id},
                 json={"topic": topic},
             )
             return await self._handle_job_with_retries(
@@ -691,7 +832,8 @@ class IntelligenceAdapter:
         try:
             job_response = await self._make_request(
                 method="POST",
-                endpoint=f"/inference/{session_id}/chat",
+                endpoint="/inference/chat",
+                params={"session_id": session_id},
                 json={"message": message, "system_prompt": system_prompt},
             )
             return await self._handle_job_with_retries(
@@ -714,7 +856,8 @@ class IntelligenceAdapter:
         try:
             job_response = await self._make_request(
                 method="POST",
-                endpoint=f"/inference/{session_id}/completion",
+                endpoint="/inference/completion",
+                params={"session_id": session_id},
                 json={"prompt": prompt},
             )
             return await self._handle_job_with_retries(
@@ -733,14 +876,48 @@ class IntelligenceAdapter:
         Raises:
             IntelligenceAPIError: If cleanup fails
         """
+        if not session_id:
+            console.print("[yellow]⚠️ Cannot cleanup chat: Session ID is required[/]")
+            return
+
+        # Add a static flag to prevent recursive cleanup attempts
+        if (
+            hasattr(self, "_chat_cleanup_in_progress")
+            and self._chat_cleanup_in_progress
+        ):
+            console.print(
+                "[yellow]⚠️ Chat cleanup already in progress, skipping nested cleanup request[/]"
+            )
+            return
+
+        # Set flag to prevent recursive cleanup
+        setattr(self, "_chat_cleanup_in_progress", True)
+
         try:
             job_response = await self._make_request(
                 method="DELETE",
-                endpoint=f"/inference/{session_id}/cleanup-chat",
+                endpoint="/inference/cleanup-chat",
+                params={"session_id": session_id},
             )
+
+            # Handle case where response is None or missing job_id
+            if not job_response or "job_id" not in job_response:
+                console.print(
+                    "[yellow]⚠️ Chat cleanup returned no job ID, chat history may already be empty[/]"
+                )
+                return
+
+            # Don't raise exceptions for cleanup job failures
             await self._wait_for_job(
                 job_id=job_response.get("job_id"), polling_interval=5, timeout=180
             )
+            console.print("[green]✓ Chat history cleaned up successfully[/]")
+
+        except IntelligenceAPIError:
+            console.print(
+                "[yellow]⚠️ Chat cleanup operation completed with errors. The chat history may be in an inconsistent state.[/]"
+            )
         except Exception as e:
-            logger.error("Failed to cleanup chat: %s", str(e))
-            raise IntelligenceAPIError(f"Chat cleanup failed: {str(e)}") from e
+            logger.error(f"Error deleting chat: {str(e)}")
+        finally:
+            setattr(self, "_chat_cleanup_in_progress", False)

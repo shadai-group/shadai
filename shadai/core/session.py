@@ -90,6 +90,7 @@ class Session:
             Session: The session object
         """
         console.print("\n[bold blue]🚀 Initializing Intelligence Session...[/]")
+
         self._session_id = await self._get()
         console.print("[bold green]✓[/] Session initialized successfully\n")
         return self
@@ -527,11 +528,22 @@ class Session:
         Raises:
             ValueError: If the session ID is not set.
         """
-        if not self._session_id and not self._alias:
-            raise ValueError("Session ID or alias is required")
+        if getattr(self, "_session_cleaned_up", False):
+            logger.debug("Session already cleaned up, skipping duplicate deletion")
+            return
 
-        with console.status("[bold blue]🚀 Cleaning up session...[/]"):
-            await self._adapter.delete_session(
-                session_id=self._session_id, alias=self._alias
+        if not self._session_id and not self._alias:
+            console.print(
+                "[yellow]⚠️  Cannot delete: Session ID or alias is required[/]"
             )
-            console.print("[bold green]✓[/] Session cleaned up successfully")
+            return
+
+        setattr(self, "_cleanup_in_progress", True)
+        try:
+            with console.status("[bold blue]Cleaning up session...[/]"):
+                await self._adapter.delete_session(
+                    session_id=self._session_id, alias=self._alias
+                )
+            setattr(self, "_session_cleaned_up", True)
+        finally:
+            setattr(self, "_cleanup_in_progress", False)
