@@ -63,7 +63,7 @@ class Manager:
         """
         Delete a session by its ID
         """
-        if not session_id and not alias:
+        if session_id is None and alias is None:
             raise ValueError("Session ID or alias is required")
 
         with console.status("[bold blue]🚀 Cleaning up session...[/]"):

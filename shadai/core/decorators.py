@@ -3,7 +3,7 @@ import random
 from functools import wraps
 from typing import Any, Awaitable, Callable, TypeVar, cast
 
-from requests import HTTPError, RequestException
+from requests import HTTPError, ReadTimeout, RequestException
 from rich.console import Console
 from rich.panel import Panel
 
@@ -23,7 +23,7 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-def retry_on_server_error(max_retries: int = 5, base_delay: float = 1.0) -> Callable:
+def retry_on_server_error(max_retries: int = 20, base_delay: float = 1.0) -> Callable:
     """Decorator for retrying requests on server errors."""
 
     def decorator(func: Callable) -> Callable:
@@ -32,6 +32,13 @@ def retry_on_server_error(max_retries: int = 5, base_delay: float = 1.0) -> Call
             for attempt in range(max_retries):
                 try:
                     return await func(*args, **kwargs)
+                except ReadTimeout as e:
+                    if attempt == max_retries - 1:
+                        raise IntelligenceAPIError("Max retries reached") from e
+                    wait_time = min(base_delay * (2**attempt), 8) * (
+                        1 + random.random() * 0.1
+                    )
+                    await asyncio.sleep(wait_time)
                 except RequestException as e:
                     if e.response.status_code == 402:
                         console.print(
@@ -125,10 +132,43 @@ def handle_errors(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[
             and instance._delete
             and func.__name__ != "__aexit__"
             and not getattr(instance, "_session_cleaned_up", False)
+            and not getattr(instance, "_cleanup_from_aexit", False)
         ):
             try:
-                console.print("[yellow]⚙️  Cleaning up session...[/]")
-                await instance.delete()
+                has_valid_session = (
+                    hasattr(instance, "_session_id")
+                    and instance._session_id is not None
+                ) or (hasattr(instance, "_alias") and instance._alias is not None)
+
+                if not has_valid_session:
+                    console.print(
+                        "[yellow]⚙️ No valid session ID or alias found, skipping cleanup[/]"
+                    )
+                    setattr(instance, "_session_cleaned_up", True)
+                    return
+
+                if (
+                    hasattr(instance, "_cleanup_in_progress")
+                    and instance._cleanup_in_progress
+                ):
+                    console.print(
+                        "[yellow]⚙️ Cleanup already in progress, skipping recursive cleanup[/]"
+                    )
+                    setattr(instance, "_session_cleaned_up", True)
+                    return
+
+                setattr(instance, "_cleanup_in_progress", True)
+                console.print("[yellow]⚙️ Cleaning up session...[/]")
+
+                try:
+                    await instance.delete()
+                except Exception as e:
+                    console.print(
+                        f"[yellow]⚠️ Non-critical error during cleanup: {str(e)}[/]"
+                    )
+                finally:
+                    setattr(instance, "_cleanup_in_progress", False)
+
                 setattr(instance, "_session_cleaned_up", True)
                 console.print("[green]✓[/] Session cleaned up")
             except Exception as cleanup_error:
