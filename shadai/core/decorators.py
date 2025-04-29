@@ -39,17 +39,14 @@ def retry_on_server_error(max_retries: int = 20, base_delay: float = 1.0) -> Cal
                         1 + random.random() * 0.1
                     )
                     await asyncio.sleep(wait_time)
-                except RequestException as e:
+                except (RequestException, HTTPError) as e:
                     if e.response.status_code == 402:
                         console.print(
                             "[red]⚠️  Insufficient balance. Please top up your account.[/]"
                         )
                         raise
                     else:
-                        if (
-                            isinstance(e, HTTPError)
-                            and 400 <= e.response.status_code < 500
-                        ):
+                        if isinstance(e, HTTPError) and e.response.status_code == 500:
                             raise
                         if attempt == max_retries - 1:
                             raise IntelligenceAPIError("Max retries reached") from e
