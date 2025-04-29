@@ -448,17 +448,17 @@ class Session:
         Returns:
             str: The response from the LLM.
         """
-        console.print("\n[bold blue]🚀 Calling Agent LLM...[/]")
+        console.print("\n[bold blue]🚀 Calling LLM...[/]")
         if display_prompt:
             console.print(Panel(prompt, title="Prompt"))
 
-        with console.status("[bold yellow]Calling Agent LLM...[/]", spinner="dots"):
+        with console.status("[bold yellow]Calling LLM...[/]", spinner="dots"):
             response = await self._adapter.llm_call(
                 session_id=self._session_id, prompt=prompt
             )
         if display_in_console:
             console.print(Panel(response, title="Response", border_style="green"))
-        console.print("[bold green]✓[/] Agent LLM call processed successfully")
+        console.print("[bold green]✓[/] LLM call processed successfully")
         return response
 
     @handle_errors
@@ -480,7 +480,7 @@ class Session:
         Returns:
             str: The chat response
         """
-        console.print("\n[bold blue]🚀 Chatting with Agent LLM...[/]")
+        console.print("\n[bold blue]🚀 Chatting with LLM...[/]")
         if system_prompt:
             console.print("\n[bold yellow]✨ Input System Prompt[/]")
             console.print(Panel(system_prompt, title="System Prompt"))

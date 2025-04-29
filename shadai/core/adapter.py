@@ -5,7 +5,7 @@ import random
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Tuple, Union
 
 from dotenv import load_dotenv
-from requests import Session
+from requests import RequestException, Session
 from rich.console import Console
 
 from shadai.core.decorators import retry_on_server_error
@@ -67,6 +67,11 @@ class IntelligenceAdapter:
         kwargs["timeout"] = kwargs.get("timeout", 25)
 
         response = self._session.request(method=method, url=url, **kwargs)
+
+        if response is None:
+            raise RequestException("No response from the server")
+        # console.print("response")
+        # console.print(response.json())
         if response.status_code == 402:
             raise IntelligenceAPIError(
                 "Insufficient balance. Please top up your account."
@@ -580,7 +585,12 @@ class IntelligenceAdapter:
                 )
 
         except Exception as e:
-            logger.error(f"Error deleting session: {str(e)}")
+            if hasattr(e, "response") and e.response.status_code == 404:
+                console.print(
+                    "[green]✓ Session is already deleted or does not exist[/]"
+                )
+            else:
+                logger.error(f"Error deleting session: {str(e)}")
         finally:
             # Always reset the cleanup flag, even if an exception occurs
             setattr(self, "_cleanup_in_progress", False)
