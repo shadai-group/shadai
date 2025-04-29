@@ -70,8 +70,7 @@ class IntelligenceAdapter:
 
         if response is None:
             raise RequestException("No response from the server")
-        # console.print("response")
-        # console.print(response.json())
+
         if response.status_code == 402:
             raise IntelligenceAPIError(
                 "Insufficient balance. Please top up your account."
