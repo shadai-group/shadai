@@ -31,8 +31,8 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
-        self.core_base_url = "https://dev.core.shadai.ai"
-        self.core_api_base_url = "https://dev.core.api.shadai.ai"
+        self.core_base_url = "https://core.shadai.ai"
+        self.core_api_base_url = "https://core.api.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
@@ -657,13 +657,18 @@ class IntelligenceAdapter:
         finally:
             setattr(self, "_namespace_cleanup_in_progress", False)
 
-    async def get_presigned_url(self, session_id: str, filename: str) -> str:
+    async def get_presigned_url(
+        self,
+        session_id: str,
+        filename: str,
+        destination: Literal["documents", "images", "videos"],
+    ) -> str:
         """Generate a pre-signed URL for file upload.
 
         Args:
             session_id (str): The session identifier
             filename (str): The filename to upload
-
+            destination (Literal["documents", "images", "videos"]): The destination to upload the file to
         Returns:
             str: The pre-signed URL
         """
@@ -671,7 +676,11 @@ class IntelligenceAdapter:
             response = await self._make_request(
                 method="GET",
                 endpoint="/ingestion",
-                params={"session_id": session_id, "file_name": filename},
+                params={
+                    "session_id": session_id,
+                    "file_name": filename,
+                    "destination": destination,
+                },
                 use_core_api_base_url=True,
             )
             return response
@@ -714,7 +723,7 @@ class IntelligenceAdapter:
 
             async for progress in self._wait_for_ingestion_job(
                 job_id=job_id,
-                polling_interval=10,
+                polling_interval=30.0,
                 timeout=3600,
             ):
                 if progress >= 0.999:
@@ -826,7 +835,12 @@ class IntelligenceAdapter:
             raise IntelligenceAPIError(f"Failed to create article: {str(e)}") from e
 
     async def chat(
-        self, session_id: str, message: str, system_prompt: Optional[str] = None
+        self,
+        session_id: str,
+        message: str,
+        system_prompt: Optional[str] = None,
+        use_images: bool = False,
+        use_videos: bool = False,
     ) -> str:
         """Chat with the LLM using the session context and knowledge base.
 
@@ -834,6 +848,8 @@ class IntelligenceAdapter:
             session_id (str): The session identifier
             message (str): The message to send to the LLM
             system_prompt (Optional[str]): The system prompt to use for the chat
+            use_images (bool): Whether to use images
+            use_videos (bool): Whether to use videos
 
         Returns:
             str: The chat response
@@ -843,7 +859,12 @@ class IntelligenceAdapter:
                 method="POST",
                 endpoint="/inference/chat",
                 params={"session_id": session_id},
-                json={"message": message, "system_prompt": system_prompt},
+                json={
+                    "message": message,
+                    "system_prompt": system_prompt,
+                    "use_images": use_images,
+                    "use_videos": use_videos,
+                },
             )
             return await self._handle_job_with_retries(
                 job_response=job_response, operation_name="Chat"
@@ -852,12 +873,18 @@ class IntelligenceAdapter:
             logger.error("Failed to chat: %s", str(e))
             raise IntelligenceAPIError(f"Failed to chat: {str(e)}") from e
 
-    async def llm_call(self, session_id: str, prompt: str) -> str:
+    async def llm_call(
+        self,
+        session_id: str,
+        prompt: str,
+        use_images: bool = False,
+    ) -> str:
         """Call the LLM with the prompt.
 
         Args:
             session_id (str): The session identifier
             prompt (str): The prompt to send to the LLM
+            use_images (bool): Whether to use images
 
         Returns:
             str: The LLM response
@@ -867,7 +894,10 @@ class IntelligenceAdapter:
                 method="POST",
                 endpoint="/inference/completion",
                 params={"session_id": session_id},
-                json={"prompt": prompt},
+                json={
+                    "prompt": prompt,
+                    "use_images": use_images,
+                },
             )
             return await self._handle_job_with_retries(
                 job_response=job_response, operation_name="LLM call"

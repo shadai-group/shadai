@@ -317,7 +317,7 @@ if __name__ == "__main__":
 Sometimes you just need a direct answer from the language model:
 
 ```python
-# examples/chat_with_llm.py
+# examples/call_llm.py
 import asyncio
 import os
 from shadai.core.session import Session
@@ -331,7 +331,7 @@ async def main():
 
         # Use complete for direct language model responses
         # This bypasses the document retrieval step but still considers the document context
-        await session.complete(
+        await session.llm_call(
             prompt="¿Cual es el estado con la mayor economía en los Estados Unidos?",
             display_prompt=True,  # Show the prompt in the output
             display_in_console=True,  # Print the response in the console
@@ -394,6 +394,44 @@ async def chat_only_with_history():
 if __name__ == "__main__":
     asyncio.run(chat_with_data_and_history())
     asyncio.run(chat_only_with_history())
+```
+
+### Chat with Images
+
+You can also analyze images using the SHADAI client:
+
+```python
+# examples/chat_with_images.py
+import asyncio
+import os
+import sys
+
+# Add the parent directory to sys.path to access the shadai package
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from shadai.core.session import Session
+
+images_dir = os.path.join(os.path.dirname(__file__), "media", "images")
+
+
+async def chat_with_images_without_history():
+    """
+    This function chats with the images.
+    """
+    async with Session(
+        type="standard",
+        delete=True,
+    ) as session:
+        await session.llm_call(
+            prompt="Dame toda la información que puedas obtener de estas imágenes",
+            images_path=images_dir,
+            display_prompt=True,
+            display_in_console=True,
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(chat_with_images_without_history())
 ```
 
 ### Creating a Tool Agent

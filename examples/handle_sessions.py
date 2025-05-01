@@ -95,9 +95,10 @@ async def delete_session(
 
 
 async def main():
+    await create_session(alias="test-session")
     await list_sessions()
-    await cleanup_namespace()
     await delete_session(session_id="YOUR SESSION ID")
+    await cleanup_namespace()
 
 
 if __name__ == "__main__":
