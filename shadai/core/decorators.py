@@ -1,9 +1,6 @@
-import asyncio
-import random
 from functools import wraps
 from typing import Any, Awaitable, Callable, TypeVar, cast
 
-from requests import HTTPError, ReadTimeout, RequestException
 from rich.console import Console
 from rich.panel import Panel
 
@@ -20,47 +17,6 @@ console = Console()
 
 # Define TypeVars for the function return types
 T = TypeVar("T")
-R = TypeVar("R")
-
-
-def retry_on_server_error(max_retries: int = 20, base_delay: float = 1.0) -> Callable:
-    """Decorator for retrying requests on server errors."""
-
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            for attempt in range(max_retries):
-                try:
-                    return await func(*args, **kwargs)
-                except ReadTimeout as e:
-                    if attempt == max_retries - 1:
-                        raise IntelligenceAPIError("Max retries reached") from e
-                    wait_time = min(base_delay * (2**attempt), 8) * (
-                        1 + random.random() * 0.1
-                    )
-                    await asyncio.sleep(wait_time)
-                except (RequestException, HTTPError) as e:
-                    if e.response.status_code == 402:
-                        console.print(
-                            "[red]⚠️  Insufficient balance. Please top up your account.[/]"
-                        )
-                        raise
-                    else:
-                        if isinstance(e, HTTPError) and e.response.status_code == 500:
-                            raise
-                        if attempt == max_retries - 1:
-                            raise IntelligenceAPIError("Max retries reached") from e
-                        wait_time = min(base_delay * (2**attempt), 8) * (
-                            1 + random.random() * 0.1
-                        )
-                        console.print(
-                            f"[yellow]⚠️  Retrying request ({attempt + 1}/{max_retries}) in {wait_time:.1f}s...[/]"
-                        )
-                        await asyncio.sleep(wait_time)
-
-        return wrapper
-
-    return decorator
 
 
 def handle_errors(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
