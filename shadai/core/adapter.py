@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from requests import RequestException, Session
 from rich.console import Console
 
-from shadai.core.decorators import retry_on_server_error
 from shadai.core.exceptions import ConfigurationError, IntelligenceAPIError
 from shadai.core.schemas import JobResponse, JobStatus, SessionCreate, SessionResponse
 
@@ -51,7 +50,6 @@ class IntelligenceAdapter:
             endpoint = endpoint[1:]
         return base_url + endpoint
 
-    @retry_on_server_error()
     async def _make_request(
         self,
         method: str,
