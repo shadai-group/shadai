@@ -1,19 +1,19 @@
 import asyncio
 import os
 import sys
-from ast import List
-
-from shadai.core.enums import AIModels, QueryMode
-from shadai.core.schemas import SessionResponse
+from typing import List, Optional
 
 # Add the parent directory to sys.path to access the shadai package
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+from shadai.core.enums import AIModels, QueryMode
 from shadai.core.manager import Manager
+from shadai.core.schemas import SessionResponse
 from shadai.core.session import Session
 
 
-async def create_session() -> Session:
+async def create_session(alias: Optional[str] = None) -> Session:
     """
     This function creates a new session with specific parameters.
     You can customize model, temperature, tokens, and query mode.
@@ -23,12 +23,13 @@ async def create_session() -> Session:
         Session: The session object.
     """
     async with Session(
+        alias=alias,
         type="standard",
         llm_model=AIModels.CLAUDE_3_7_SONNET,
         llm_temperature=0.7,
         llm_max_tokens=4096,
         query_mode=QueryMode.HYBRID,
-        delete=False,
+        delete=True,
     ) as session:
         return session
 
@@ -64,6 +65,8 @@ async def get_existing_session_with_alias(alias: str) -> Session:
 async def list_sessions() -> List[SessionResponse]:
     """
     This function lists all the sessions in the current namespace.
+    Returns:
+        List[SessionResponse]: A list of session responses.
     """
     async with Manager() as manager:
         sessions = await manager.list_sessions(show_in_console=True)
@@ -78,7 +81,9 @@ async def cleanup_namespace() -> None:
         await manager.cleanup_namespace()
 
 
-async def delete_session(session_id: str) -> None:
+async def delete_session(
+    session_id: Optional[str] = None, alias: Optional[str] = None
+) -> None:
     """
     This function deletes a session by its ID.
 
@@ -86,13 +91,14 @@ async def delete_session(session_id: str) -> None:
         session_id (str): The ID of the session to delete.
     """
     async with Manager() as manager:
-        await manager.delete_session(session_id=session_id)
+        await manager.delete_session(session_id=session_id, alias=alias)
 
 
 async def main():
+    await create_session(alias="test-session")
     await list_sessions()
-    await cleanup_namespace()
     await delete_session(session_id="YOUR SESSION ID")
+    await cleanup_namespace()
 
 
 if __name__ == "__main__":

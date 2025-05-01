@@ -1,6 +1,7 @@
 import logging
 import os
 from pathlib import Path
+from typing import Literal
 
 from requests.exceptions import RequestException
 from rich.console import Console
@@ -31,19 +32,22 @@ class FileManager:
         self,
         session_id: str,
         file_path: Path,
+        destination: Literal["documents", "images", "videos"],
         progress: Progress,
         overall_task_id: int,
     ) -> None:
         """Upload a file to the session.
 
         Args:
+            session_id (str): The session ID.
             file_path (Path): The path to the file to upload.
+            destination (Literal["documents", "images", "videos"]): The destination to upload the file to.
             progress (Progress): The progress bar to update.
             overall_task_id (int): The ID of the overall task to update.
         """
         try:
             url = await self._adapter.get_presigned_url(
-                session_id=session_id, filename=file_path.name
+                session_id=session_id, filename=file_path.name, destination=destination
             )
             file_size = os.path.getsize(file_path)
             file_task_id = progress.add_task(
