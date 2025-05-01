@@ -31,7 +31,7 @@ class IntelligenceAdapter:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
         self.core_base_url = "https://core.shadai.ai"
-        self.core_api_base_url = "https://core.api.shadai.ai"
+        self.core_api_base_url = "https://coreapi.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
