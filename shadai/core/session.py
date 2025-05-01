@@ -20,7 +20,12 @@ from rich.table import Table
 
 from shadai.core.adapter import IntelligenceAdapter
 from shadai.core.decorators import handle_errors
-from shadai.core.enums import AIModels, QueryMode
+from shadai.core.enums import (
+    AIModels,
+    ImageFileExtensions,
+    QueryMode,
+    VideoFileExtensions,
+)
 from shadai.core.exceptions import IngestionError
 from shadai.core.files import FileManager
 from shadai.core.schemas import Query, QueryResponse, SessionResponse
@@ -160,6 +165,77 @@ class Session:
         )
         return session
 
+    async def _upload_files(
+        self,
+        input_dir: str,
+        session_id: str,
+        destination: Literal["documents", "images", "videos"] = "documents",
+        max_concurrent_uploads: int = 5,
+    ) -> List[Path]:
+        """Upload files from the input directory in parallel.
+
+        Args:
+            input_dir (str): The path to the directory containing the files to upload.
+            session_id (str): The session ID to use for uploading.
+            destination (Literal["documents", "images", "videos"]): The destination to upload the files to.
+            max_concurrent_uploads (int): The maximum number of files to upload concurrently.
+
+        Returns:
+            List[Path]: List of successfully uploaded files.
+
+        Raises:
+            FileNotFoundError: If the directory doesn't exist.
+            ValueError: If no files are found in the directory.
+        """
+        input_path = Path(input_dir)
+        if not input_path.exists():
+            raise FileNotFoundError(f"Directory not found: {input_dir}")
+
+        if not session_id:
+            raise ValueError("Session ID is required")
+
+        files = [f for f in input_path.rglob("*") if f.is_file()]
+        if not files:
+            raise ValueError(f"No files found in directory: {input_dir}")
+
+        total_files = len(files)
+        total_bytes = sum(os.path.getsize(f) for f in files)
+
+        console.print(
+            f"[bold yellow]Found {total_files} files to process ({total_bytes / (1024*1024):.1f} MB total)[/]"
+        )
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            DownloadColumn(binary_units=True),
+            expand=True,
+            refresh_per_second=10,
+        ) as progress:
+            overall_task_id = progress.add_task(
+                "[bold blue]Overall Progress", total=total_bytes, start=True
+            )
+
+            for i in range(0, total_files, max_concurrent_uploads):
+                chunk = files[i : i + max_concurrent_uploads]
+                upload_tasks = [
+                    self._file_manager._upload_file(
+                        session_id=session_id,
+                        file_path=file_path,
+                        destination=destination,
+                        progress=progress,
+                        overall_task_id=overall_task_id,
+                    )
+                    for file_path in chunk
+                ]
+                await asyncio.gather(*upload_tasks)
+
+        console.print("[bold green]✓[/] All files uploaded successfully")
+        return files
+
     @handle_errors
     async def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
         """Upload files from the input directory in parallel for processing.
@@ -170,50 +246,13 @@ class Session:
         """
         console.print("\n[bold blue]🚀 Starting Ingestion Process[/]")
 
-        input_path = Path(input_dir)
-        if not input_path.exists():
-            raise FileNotFoundError(f"Directory not found: {input_dir}")
-
-        if not self._session_id:
-            raise ValueError("Session ID is required")
-
         try:
-            files = [f for f in input_path.rglob("*") if f.is_file()]
-            if not files:
-                raise ValueError(f"No files found in directory: {input_dir}")
-            total_files = len(files)
-            total_bytes = sum(os.path.getsize(f) for f in files)
-
-            console.print(
-                f"[bold yellow]Found {total_files} files to process ({total_bytes / (1024*1024):.1f} MB total)[/]"
+            await self._upload_files(
+                input_dir=input_dir,
+                session_id=self._session_id,
+                destination="documents",
+                max_concurrent_uploads=max_concurrent_uploads,
             )
-
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                TimeElapsedColumn(),
-                DownloadColumn(binary_units=True),
-                expand=True,
-                refresh_per_second=10,
-            ) as progress:
-                overall_task_id = progress.add_task(
-                    "[bold blue]Overall Progress", total=total_bytes, start=True
-                )
-
-                for i in range(0, total_files, max_concurrent_uploads):
-                    chunk = files[i : i + max_concurrent_uploads]
-                    upload_tasks = [
-                        self._file_manager._upload_file(
-                            session_id=self._session_id,
-                            file_path=file_path,
-                            progress=progress,
-                            overall_task_id=overall_task_id,
-                        )
-                        for file_path in chunk
-                    ]
-                    await asyncio.gather(*upload_tasks)
 
             console.print("\n[bold blue]⚙️ Processing uploaded files...[/]")
 
@@ -431,10 +470,96 @@ class Session:
         console.print("[bold green]✓[/] Article created successfully")
         return article
 
+    async def _validate_files(
+        self,
+        images_path: Optional[str] = None,
+        videos_path: Optional[str] = None,
+    ) -> bool:
+        """Validate media files.
+
+        Args:
+            images_path (Optional[str]): The path to the images directory.
+            videos_path (Optional[str]): The path to the videos directory.
+
+        Returns:
+            bool: True if files are valid, False otherwise.
+        """
+        # Early validation for mutually exclusive options
+        if images_path and videos_path:
+            console.print("[bold red]✗[/] Cannot use both images and videos")
+            return False
+
+        # If neither is provided, nothing to validate
+        if not (images_path or videos_path):
+            return False
+
+        def validate_media_path(
+            path: str, media_type: str, allowed_extensions: set
+        ) -> bool:
+            """Validate a media directory and its contents."""
+            path_obj = Path(path)
+
+            # Validate directory
+            if not path_obj.exists():
+                console.print(
+                    f"[bold red]✗[/] {media_type.capitalize()} path not found: {path}"
+                )
+                return False
+            if not path_obj.is_dir():
+                console.print(
+                    f"[bold red]✗[/] {media_type.capitalize()} path is not a directory: {path}"
+                )
+                return False
+
+            # Validate files
+            files = list(path_obj.iterdir())
+            if not files:
+                console.print(
+                    f"[bold red]✗[/] No files found in {media_type} directory"
+                )
+                return False
+
+            invalid_files = [
+                f.name
+                for f in files
+                if f.is_file() and f.suffix.lower() not in allowed_extensions
+            ]
+
+            if invalid_files:
+                display_files = invalid_files[:5]
+                overflow = (
+                    f" and {len(invalid_files) - 5} more"
+                    if len(invalid_files) > 5
+                    else ""
+                )
+                console.print(
+                    f"[bold red]✗ Invalid {media_type} file(s): {', '.join(display_files)}{overflow}[/]"
+                )
+                return False
+
+            return True
+
+        # Determine which type to validate
+        if images_path:
+            is_valid = validate_media_path(
+                images_path, "image", ImageFileExtensions.values()
+            )
+            if is_valid:
+                console.print("[bold green]✓[/] Images path and files are valid")
+            return is_valid
+        else:  # videos_path must be set based on earlier checks
+            is_valid = validate_media_path(
+                videos_path, "video", VideoFileExtensions.values()
+            )
+            if is_valid:
+                console.print("[bold green]✓[/] Videos path and files are valid")
+            return is_valid
+
     @handle_errors
-    async def complete(
+    async def llm_call(
         self,
         prompt: str,
+        images_path: Optional[str] = None,
         display_prompt: bool = False,
         display_in_console: bool = True,
     ) -> str:
@@ -442,19 +567,33 @@ class Session:
 
         Args:
             prompt (str): The prompt to call the LLM with.
+            images_path (Optional[str]): The path to the images.
             display_prompt (bool): Whether to display the prompt in the console.
             display_in_console (bool): Whether to display the response in the console.
 
         Returns:
             str: The response from the LLM.
         """
+        if images_path:
+            if not await self._validate_files(
+                images_path=images_path,
+            ):
+                return
+            await self._upload_files(
+                input_dir=images_path,
+                session_id=self._session_id,
+                destination="images",
+            )
+
         console.print("\n[bold blue]🚀 Calling LLM...[/]")
         if display_prompt:
             console.print(Panel(prompt, title="Prompt"))
 
         with console.status("[bold yellow]Calling LLM...[/]", spinner="dots"):
             response = await self._adapter.llm_call(
-                session_id=self._session_id, prompt=prompt
+                session_id=self._session_id,
+                prompt=prompt,
+                use_images=bool(images_path),
             )
         if display_in_console:
             console.print(Panel(response, title="Response", border_style="green"))
@@ -466,6 +605,8 @@ class Session:
         self,
         message: str,
         system_prompt: Optional[str] = None,
+        images_path: Optional[str] = None,
+        videos_path: Optional[str] = None,
         use_history: bool = True,
         display_in_console: bool = True,
     ) -> str:
@@ -474,12 +615,25 @@ class Session:
         Args:
             message (str): The message to send to the LLM
             system_prompt (Optional[str]): The system prompt to use for the chat
+            images_path (Optional[str]): The path to the images
+            videos_path (Optional[str]): The path to the videos
             use_history (bool): Whether to use the history of the chat
             display_in_console (bool): Whether to display the chat in the console
 
         Returns:
             str: The chat response
         """
+        if images_path or videos_path:
+            if not await self._validate_files(
+                images_path=images_path,
+                videos_path=videos_path,
+            ):
+                return
+            await self._upload_files(
+                input_dir=images_path if images_path else videos_path,
+                session_id=self._session_id,
+                destination="images" if images_path else "videos",
+            )
         console.print("\n[bold blue]🚀 Chatting with LLM...[/]")
         if system_prompt:
             console.print("\n[bold yellow]✨ Input System Prompt[/]")
@@ -494,12 +648,16 @@ class Session:
                     session_id=self._session_id,
                     message=message,
                     system_prompt=system_prompt,
+                    use_images=bool(images_path),
+                    use_videos=bool(videos_path),
                 )
             else:
                 prompt = f"System prompt: {system_prompt}\n\n User message: {message}"
                 response = await self._adapter.llm_call(
                     session_id=self._session_id,
                     prompt=prompt,
+                    use_images=bool(images_path),
+                    use_videos=bool(videos_path),
                 )
 
         if display_in_console:

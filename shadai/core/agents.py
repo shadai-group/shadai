@@ -107,7 +107,7 @@ class ToolAgent:
 
         formatted_prompt = self.prompt.format(**format_args)
 
-        response = await self.session.complete(
+        response = await self.session.llm_call(
             prompt=formatted_prompt,
             display_prompt=display_prompt,
             display_in_console=display_in_console,
