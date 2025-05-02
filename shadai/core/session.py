@@ -19,7 +19,6 @@ from rich.progress import (
 from rich.table import Table
 
 from shadai.core.adapter import IntelligenceAdapter
-from shadai.core.decorators import handle_errors
 from shadai.core.enums import (
     AIModels,
     ImageFileExtensions,
@@ -28,7 +27,7 @@ from shadai.core.enums import (
 )
 from shadai.core.exceptions import IngestionError
 from shadai.core.files import FileManager
-from shadai.core.schemas import Query, QueryResponse, SessionResponse
+from shadai.core.schemas import JobResponse, Query, QueryResponse, SessionResponse
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -87,7 +86,6 @@ class Session:
         """
         return self._session_id
 
-    @handle_errors
     async def __aenter__(self) -> "Session":
         """Async context manager entry.
 
@@ -100,7 +98,6 @@ class Session:
         console.print("[bold green]✓[/] Session initialized successfully\n")
         return self
 
-    @handle_errors
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit.
 
@@ -112,7 +109,6 @@ class Session:
         if self._delete:
             await self.delete()
 
-    @handle_errors
     async def _get(self) -> str:
         """Get the session ID."""
         if self._session_id or self._alias:
@@ -134,11 +130,10 @@ class Session:
             session = await self._create()
         return session.session_id
 
-    @handle_errors
     async def _create(self) -> SessionResponse:
         """Create a new session."""
         with console.status(f"[bold yellow]Creating new {self._type} session...\n\n"):
-            session = await self._adapter.create_session(
+            session: SessionResponse = await self._adapter.create_session(
                 type=self._type,
                 llm_model=self._llm_model,
                 llm_temperature=self._llm_temperature,
@@ -236,13 +231,15 @@ class Session:
         console.print("[bold green]✓[/] All files uploaded successfully")
         return files
 
-    @handle_errors
-    async def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> None:
+    async def ingest(self, input_dir: str, max_concurrent_uploads: int = 5) -> bool:
         """Upload files from the input directory in parallel for processing.
 
         Args:
             input_dir (str): The path to the directory containing the files to process.
             max_concurrent_uploads (int): The maximum number of files to upload concurrently.
+
+        Returns:
+            bool: True if ingestion was successful, False otherwise.
         """
         console.print("\n[bold blue]🚀 Starting Ingestion Process[/]")
 
@@ -256,7 +253,6 @@ class Session:
 
             console.print("\n[bold blue]⚙️ Processing uploaded files...[/]")
 
-            # Create a progress bar for the processing phase
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -271,46 +267,61 @@ class Session:
                 )
 
                 try:
-                    completing = False
-
-                    async for progress in self._adapter.ingest(
+                    job: JobResponse = await self._adapter.ingest(
                         session_id=self._session_id
+                    )
+
+                    async for progress in self._adapter.track_job_with_progress(
+                        job_id=job.job_id,
+                        timeout=900,
                     ):
                         progress_percentage = progress * 100
-
-                        if progress >= 0.999:
-                            if not completing:
-                                completing = True
-                                processing_progress.update(
-                                    processing_task_id,
-                                    description="[bold yellow]Finalizing...",
-                                    completed=99,
-                                    refresh=True,
-                                )
-
-                            processing_progress.update(
-                                processing_task_id,
-                                description="[bold green]Processing Complete",
-                                completed=100,
-                                refresh=True,
-                            )
-                        else:
-                            processing_progress.update(
-                                processing_task_id,
-                                completed=progress_percentage,
-                                refresh=True,
-                            )
+                        processing_progress.update(
+                            processing_task_id,
+                            completed=progress_percentage,
+                            refresh=True,
+                        )
+                    processing_progress.update(
+                        processing_task_id,
+                        description="[bold green]Processing Complete",
+                        completed=100,
+                        refresh=True,
+                    )
                 except Exception as e:
                     raise IngestionError(f"Processing failed: {str(e)}") from e
 
             console.print("[bold green]✓[/] All files processed successfully")
             console.print("\n[bold green]✨ Ingestion completed successfully![/]\n")
+            return True
         except Exception as e:
             console.print(f"\n[bold red]✗ Ingestion failed: {str(e)}[/]")
             logger.error("Ingestion failed: %s", str(e))
-            raise IngestionError(f"Failed to ingest files: {str(e)}") from e
+            return False
 
-    @handle_errors
+    async def _query(
+        self,
+        query: str,
+        role: Optional[str] = None,
+    ) -> str:
+        """Query the processed data.
+
+        Args:
+            query (str): The query to process.
+            role (Optional[str]): The role to use for the query.
+
+        Returns:
+            str: The query response.
+        """
+        job: JobResponse = await self._adapter.query(
+            session_id=self._session_id, query=query, role=role
+        )
+
+        response: JobResponse = await self._adapter.track_job(
+            job_id=job.job_id,
+        )
+
+        return response.result
+
     async def query(
         self, query: str, role: Optional[str] = None, display_in_console: bool = False
     ) -> str:
@@ -331,10 +342,7 @@ class Session:
             if not self._session_id:
                 raise ValueError("Session ID is required")
             with console.status("[bold yellow]Processing query...[/]", spinner="dots"):
-                response = await self._adapter.query(
-                    session_id=self._session_id, query=query, role=role
-                )
-
+                response = await self._query(query=query, role=role)
             if display_in_console:
                 console.print(Panel(response, title="Response", border_style="green"))
             console.print("[bold green]✓[/] Query processed successfully")
@@ -345,7 +353,6 @@ class Session:
             logger.error("Query failed: %s", str(e))
             raise
 
-    @handle_errors
     async def multiple_queries(self, queries: List[Query]) -> List[QueryResponse]:
         """Query the processed data with multiple queries in parallel.
 
@@ -366,18 +373,12 @@ class Session:
             with console.status(
                 "[bold yellow]Processing multiple queries...[/]", spinner="dots"
             ):
-                # Create async tasks for each query
                 query_tasks = [
-                    self._adapter.query(
-                        session_id=self._session_id, query=query.query, role=query.role
-                    )
-                    for query in queries
+                    self._query(query=query.query, role=query.role) for query in queries
                 ]
 
-                # Execute all queries in parallel
                 responses = await asyncio.gather(*query_tasks, return_exceptions=True)
 
-                # Process results into QueryResponse objects
                 results: List[QueryResponse] = []
                 for i, (query, response) in enumerate(zip(queries, responses)):
                     if isinstance(response, Exception):
@@ -400,7 +401,6 @@ class Session:
                             )
                         )
 
-                # Display results if requested
                 displayed_count = 0
                 for result in results:
                     if result.display_in_console:
@@ -424,7 +424,6 @@ class Session:
             logger.error("Multiple queries failed: %s", str(e))
             raise
 
-    @handle_errors
     async def summarize(self, display_in_console: bool = False) -> str:
         """Get session summary.
 
@@ -440,13 +439,19 @@ class Session:
         with console.status(
             "[bold yellow]Getting session summary...[/]", spinner="dots"
         ):
-            summary = await self._adapter.get_knowledge_summary(self._session_id)
+            job: JobResponse = await self._adapter.get_knowledge_summary(
+                self._session_id
+            )
+            response: JobResponse = await self._adapter.track_job(
+                job_id=job.job_id,
+            )
         if display_in_console:
-            console.print(Panel(summary, title="Session Summary", border_style="green"))
+            console.print(
+                Panel(response.result, title="Session Summary", border_style="green")
+            )
         console.print("[bold green]✓[/] Session summary retrieved successfully")
-        return summary
+        return response.result
 
-    @handle_errors
     async def article(self, topic: str, display_in_console: bool = False) -> str:
         """Create an article on the topic.
 
@@ -462,13 +467,16 @@ class Session:
         if not self._session_id:
             raise ValueError("Session ID is required")
         with console.status("[bold yellow]Creating article...[/]", spinner="dots"):
-            article = await self._adapter.create_article(
+            job: JobResponse = await self._adapter.create_article(
                 session_id=self._session_id, topic=topic
             )
+            response: JobResponse = await self._adapter.track_job(
+                job_id=job.job_id,
+            )
         if display_in_console:
-            console.print(Panel(article, title="Article", border_style="green"))
+            console.print(Panel(response.result, title="Article", border_style="green"))
         console.print("[bold green]✓[/] Article created successfully")
-        return article
+        return response.result
 
     async def _validate_files(
         self,
@@ -555,7 +563,6 @@ class Session:
                 console.print("[bold green]✓[/] Videos path and files are valid")
             return is_valid
 
-    @handle_errors
     async def llm_call(
         self,
         prompt: str,
@@ -590,17 +597,21 @@ class Session:
             console.print(Panel(prompt, title="Prompt"))
 
         with console.status("[bold yellow]Calling LLM...[/]", spinner="dots"):
-            response = await self._adapter.llm_call(
+            job: JobResponse = await self._adapter.llm_call(
                 session_id=self._session_id,
                 prompt=prompt,
                 use_images=bool(images_path),
             )
+            response: JobResponse = await self._adapter.track_job(
+                job_id=job.job_id,
+            )
         if display_in_console:
-            console.print(Panel(response, title="Response", border_style="green"))
+            console.print(
+                Panel(response.result, title="Response", border_style="green")
+            )
         console.print("[bold green]✓[/] LLM call processed successfully")
-        return response
+        return response.result
 
-    @handle_errors
     async def chat(
         self,
         message: str,
@@ -644,28 +655,35 @@ class Session:
 
         with console.status("[bold yellow]Chatting with LLM...[/]", spinner="dots"):
             if use_history:
-                response = await self._adapter.chat(
+                job: JobResponse = await self._adapter.chat(
                     session_id=self._session_id,
                     message=message,
                     system_prompt=system_prompt,
                     use_images=bool(images_path),
                     use_videos=bool(videos_path),
                 )
+                response = await self._adapter.track_job(
+                    job_id=job.job_id,
+                )
             else:
                 prompt = f"System prompt: {system_prompt}\n\n User message: {message}"
-                response = await self._adapter.llm_call(
+                job: JobResponse = await self._adapter.llm_call(
                     session_id=self._session_id,
                     prompt=prompt,
                     use_images=bool(images_path),
                     use_videos=bool(videos_path),
                 )
+                response = await self._adapter.track_job(
+                    job_id=job.job_id,
+                )
 
         if display_in_console:
-            console.print(Panel(response, title="Response", border_style="green"))
+            console.print(
+                Panel(response.result, title="Response", border_style="green")
+            )
         console.print("[bold green]✓[/] Chat processed successfully")
-        return response
+        return response.result
 
-    @handle_errors
     async def cleanup_chat(self) -> None:
         """Cleanup the chat history.
 
@@ -676,10 +694,14 @@ class Session:
             raise ValueError("Session ID is required")
 
         with console.status("[bold blue]🚀 Cleaning up chat history...[/]"):
-            await self._adapter.cleanup_chat(session_id=self._session_id)
+            job: JobResponse = await self._adapter.cleanup_chat(
+                session_id=self._session_id
+            )
+            await self._adapter.track_job(
+                job_id=job.job_id,
+            )
             console.print("[bold green]✓[/] Chat history cleaned up successfully")
 
-    @handle_errors
     async def delete(self) -> None:
         """Delete the session.
 
@@ -699,8 +721,11 @@ class Session:
         setattr(self, "_cleanup_in_progress", True)
         try:
             with console.status("[bold blue]Cleaning up session...[/]"):
-                await self._adapter.delete_session(
+                job: JobResponse = await self._adapter.delete_session(
                     session_id=self._session_id, alias=self._alias
+                )
+                await self._adapter.track_job(
+                    job_id=job.job_id,
                 )
             setattr(self, "_session_cleaned_up", True)
         finally:
