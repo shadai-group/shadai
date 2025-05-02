@@ -8,9 +8,14 @@ from shadai.core.exceptions import (
     AgentConfigurationError,
     AgentExecutionError,
     AgentFunctionError,
+    BadRequestError,
     ConfigurationError,
     IngestionError,
     IntelligenceAPIError,
+    NetworkError,
+    NotFoundError,
+    ServerPermissionError,
+    UnauthorizedError,
 )
 
 console = Console()
@@ -73,6 +78,36 @@ def handle_errors(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[
             "title": "Agent Function Error",
             "suggestions": [
                 "Check your agent configuration",
+            ],
+        },
+        BadRequestError: {
+            "title": "Bad Request Error",
+            "suggestions": [
+                "Check your request parameters",
+            ],
+        },
+        UnauthorizedError: {
+            "title": "Unauthorized Error",
+            "suggestions": [
+                "Check your API key",
+            ],
+        },
+        ServerPermissionError: {
+            "title": "Server Permission Error",
+            "suggestions": [
+                "Check server permissions, report to support",
+            ],
+        },
+        NotFoundError: {
+            "title": "Not Found Error",
+            "suggestions": [
+                "Check the id or alias",
+            ],
+        },
+        NetworkError: {
+            "title": "Network Error",
+            "suggestions": [
+                "Check your network connection",
             ],
         },
     }

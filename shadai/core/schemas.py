@@ -22,6 +22,7 @@ class SessionResponse(SessionCreate):
 class JobStatus(str, Enum):
     """Job status enumeration."""
 
+    PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"

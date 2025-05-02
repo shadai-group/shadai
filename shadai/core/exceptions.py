@@ -38,3 +38,33 @@ class AgentFunctionError(AgentError):
     """Raised when there is an error with the agent's function execution."""
 
     pass
+
+
+class UnauthorizedError(Exception):
+    """Raised when there is an unauthorized error."""
+
+    pass
+
+
+class BadRequestError(Exception):
+    """Raised when there is a bad request error."""
+
+    pass
+
+
+class ServerPermissionError(Exception):
+    """Raised when there is a server permission error."""
+
+    pass
+
+
+class NotFoundError(Exception):
+    """Raised when there is a not found error."""
+
+    pass
+
+
+class NetworkError(Exception):
+    """Raised when there is a network error."""
+
+    pass
