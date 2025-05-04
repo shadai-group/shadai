@@ -3,13 +3,15 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import requests
 from dotenv import load_dotenv
 from rich.console import Console
+import websockets
 
 from shadai.core.decorators import handle_errors
+from shadai.core.enums import AIModels
 from shadai.core.exceptions import (
     BadRequestError,
     ConfigurationError,
@@ -195,48 +197,6 @@ class IntelligenceAdapter:
 
         raise IntelligenceAPIError(f"Job {job_id} timed out after {timeout}s")
 
-    async def track_job_with_progress(
-        self,
-        job_id: str,
-        interval: float = 30.0,
-        timeout: float = 300.0,
-    ) -> AsyncGenerator[Union[float, JobResponse], None]:
-        """Track a job until completion with progress updates.
-
-        Args:
-            job_id: The job identifier
-            interval: Time between checks in seconds
-            timeout: Maximum wait time in seconds
-
-        Yields:
-            float: Progress updates (0.0 to 1.0)
-            JobResponse: The final job response on completion
-
-        Raises:
-            IntelligenceAPIError: On timeout or failure
-        """
-        max_iterations = int(timeout // interval)
-
-        for iteration in range(max_iterations):
-            response = await self._make_request(
-                method="GET",
-                endpoint=f"/jobs/{job_id}",
-                use_core_api_base_url=True,
-            )
-
-            job = JobResponse.model_validate(response)
-
-            if hasattr(job, "progress") and job.progress is not None:
-                yield job.progress
-            else:
-                yield 0.0
-
-            if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
-                return
-
-            await asyncio.sleep(interval)
-
-        raise IntelligenceAPIError(f"Job {job_id} timed out after {timeout}s")
 
     async def get_session(
         self, session_id: Optional[str] = None, alias: Optional[str] = None
@@ -483,11 +443,12 @@ class IntelligenceAdapter:
         job = JobResponse.model_validate(response)
         return job
 
-    async def ingest(self, session_id: str) -> JobResponse:
+    async def ingest(self, session_id: str, on_status_change: Callable[[float], None]) -> JobResponse:
         """Start ingestion and track progress.
 
         Args:
             session_id: The session identifier
+            on_status_change: The function to call if there is a status update
 
         Returns:
             JobResponse: The job response
@@ -499,14 +460,40 @@ class IntelligenceAdapter:
             job = await self.create_job(
                 input=session_id, job_type=JobType.INGESTION, session_id=session_id
             )
-
-            await self._make_request(
-                method="POST",
-                endpoint="/ingestion",
-                params={"job_id": job.job_id, "session_id": session_id},
+            url = self._construct_url(
+                endpoint=f"/ingestion/ws/{session_id}", use_core_ws_base_url=True
             )
+            async with websockets.connect(url) as websocket:
+                ws_message = {
+                    "user_id": "b418e4b8-b021-7015-a361-33a447183d06", #TODO
+                    "job_id": job.job_id,
+                    "session_id": session_id,
+                    "config_name": "standard",
+                    "config_llm_model": AIModels.CLAUDE_3_5_SONNET_V2.value,
+                    "config_llm_temperature": 0.7,
+                    "config_llm_max_tokens": 4096,
+                    "config_query_mode": "hybrid",
+                    "config_language": "es",
+                }
+                await websocket.send(json.dumps(ws_message))
 
-            return job
+                while True:
+                    try:
+                        raw = await websocket.recv()
+                        data = json.loads(raw)
+                        if "data" in data:
+                            progress_value = data["data"].get("progress")
+                            on_status_change(progress_value)
+                            await asyncio.sleep(0.01)
+
+                            if data.get("status") == "completed":
+                                await websocket.close()
+                        else:
+                            raise ValueError("Missing data in message")
+                    except websockets.exceptions.ConnectionClosed:
+                        break
+
+                return job
 
         except Exception as e:
             logger.error(f"Ingestion failed: {e}")

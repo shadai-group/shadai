@@ -264,27 +264,19 @@ class Session:
                 TaskProgressColumn(),
                 TimeElapsedColumn(),
                 expand=True,
-                refresh_per_second=10,
             ) as processing_progress:
-                processing_task_id = processing_progress.add_task(
-                    "[bold yellow]Processing Documents", total=100, start=True
-                )
+                processing_task_id = processing_progress.add_task("[bold yellow]Processing Documents")
+                def update_progress(value: float)-> None:
+                    processing_progress.update(
+                        processing_task_id,
+                        completed=value,
+                        refresh=True,
+                    )
 
                 try:
                     job: JobResponse = await self._adapter.ingest(
-                        session_id=self._session_id
+                        session_id=self._session_id, on_status_change=update_progress
                     )
-
-                    async for progress in self._adapter.track_job_with_progress(
-                        job_id=job.job_id,
-                        timeout=900,
-                    ):
-                        progress_percentage = progress * 100
-                        processing_progress.update(
-                            processing_task_id,
-                            completed=progress_percentage,
-                            refresh=True,
-                        )
                     processing_progress.update(
                         processing_task_id,
                         description="[bold green]Processing Complete",
