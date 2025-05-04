@@ -1,11 +1,14 @@
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
 from typing import List, Literal, Optional
 
+import websockets
 from requests.exceptions import RequestException
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -17,6 +20,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
+from rich.text import Text
 
 from shadai.core.adapter import IntelligenceAdapter
 from shadai.core.enums import (
@@ -646,12 +650,33 @@ class Session:
                 destination="images" if images_path else "videos",
             )
         console.print("\n[bold blue]🚀 Chatting with LLM...[/]")
-        if system_prompt:
-            console.print("\n[bold yellow]✨ Input System Prompt[/]")
-            console.print(Panel(system_prompt, title="System Prompt"))
 
-        console.print("\n[bold yellow]🔍 Input Message[/]")
-        console.print(Panel(message, title="Message"))
+        if system_prompt:
+            prompt_table = Table(box=None, expand=True, padding=(0, 1))
+            prompt_table.add_column("Type", style="bold cyan", width=12)
+            prompt_table.add_column("Content", style="white")
+
+            prompt_table.add_row("[bold blue]System:[/]", system_prompt)
+
+            prompt_table.add_row("[bold green]User:[/]", message)
+
+            console.print(
+                Panel(
+                    prompt_table,
+                    title="[bold]Chat Input[/]",
+                    border_style="yellow",
+                    expand=True,
+                )
+            )
+        else:
+            console.print(
+                Panel(
+                    Text(message),
+                    title="[bold]User Message[/]",
+                    border_style="green",
+                    expand=True,
+                )
+            )
 
         with console.status("[bold yellow]Chatting with LLM...[/]", spinner="dots"):
             if use_history:
@@ -683,6 +708,165 @@ class Session:
             )
         console.print("[bold green]✓[/] Chat processed successfully")
         return response.result
+
+    async def chat_ws(
+        self,
+        message: str,
+        system_prompt: Optional[str] = None,
+        images_path: Optional[str] = None,
+        videos_path: Optional[str] = None,
+        use_history: bool = True,
+        display_in_console: bool = True,
+    ) -> str:
+        """Chat with the LLM using the session context and knowledge base.
+
+        Args:
+            message (str): The message to send to the LLM
+            system_prompt (Optional[str]): The system prompt to use for the chat
+            images_path (Optional[str]): The path to the images
+            videos_path (Optional[str]): The path to the videos
+            use_history (bool): Whether to use the history of the chat
+            display_in_console (bool): Whether to display the chat in the console
+
+        Returns:
+            str: The chat response
+        """
+        if images_path or videos_path:
+            if not await self._validate_files(
+                images_path=images_path,
+                videos_path=videos_path,
+            ):
+                return
+            await self._upload_files(
+                input_dir=images_path if images_path else videos_path,
+                session_id=self._session_id,
+                destination="images" if images_path else "videos",
+            )
+        console.print("\n[bold blue]🚀 Chatting with LLM...[/]")
+
+        # Show system prompt and message in a table format
+        if system_prompt:
+            prompt_table = Table(box=None, expand=True, padding=(0, 1))
+            prompt_table.add_column("Type", style="bold cyan", width=12)
+            prompt_table.add_column("Content", style="white")
+
+            prompt_table.add_row("[bold blue]System:[/]", system_prompt)
+
+            prompt_table.add_row("[bold green]User:[/]", message)
+
+            console.print(
+                Panel(
+                    prompt_table,
+                    title="[bold]Chat Input[/]",
+                    border_style="yellow",
+                    expand=True,
+                )
+            )
+        else:
+            console.print(
+                Panel(
+                    Text(message),
+                    title="[bold]User Message[/]",
+                    border_style="green",
+                    expand=True,
+                )
+            )
+
+        if use_history:
+            with console.status(
+                "[bold yellow]Chatting with LLM...[/]", spinner="dots"
+            ) as status:
+                job, url = await self._adapter.chat_ws(
+                    session_id=self._session_id,
+                    message=message,
+                    system_prompt=system_prompt,
+                    use_images=bool(images_path),
+                    use_videos=bool(videos_path),
+                )
+                ws_message = {
+                    "user_id": "94e84468-b031-7024-40cf-32ac6ce98855",
+                    "job_id": job.job_id,
+                    "message": message,
+                    "config_name": "standard",
+                    "config_llm_model": AIModels.CLAUDE_3_5_SONNET_V2.value,
+                    "config_llm_temperature": 0.7,
+                    "config_llm_max_tokens": 4096,
+                    "config_query_mode": "hybrid",
+                    "config_language": "es",
+                }
+
+                full_response = ""
+                response_text = Text()
+
+                try:
+                    async with websockets.connect(url) as websocket:
+                        await websocket.send(json.dumps(ws_message))
+                        raw = await websocket.recv()
+                        data = json.loads(raw)
+
+                        if "token" in data:
+                            token = data["token"]
+                            response_text.append(token)
+                            full_response += token
+                            status.stop()
+
+                        with Live(
+                            Panel(
+                                response_text,
+                                title="[bold blue]Response[/]",
+                                border_style="green",
+                                expand=True,
+                            ),
+                            refresh_per_second=24,
+                            transient=False,
+                        ) as live:
+                            while True:
+                                try:
+                                    raw = await websocket.recv()
+                                    data = json.loads(raw)
+                                    if "token" in data:
+                                        token = data["token"]
+                                        response_text.append(token)
+                                        full_response += token
+                                except websockets.exceptions.ConnectionClosed:
+                                    live.update(
+                                        Panel(
+                                            response_text,
+                                            title="[bold blue]Response[/]",
+                                            border_style="green",
+                                            expand=True,
+                                        )
+                                    )
+                                    break
+
+                except Exception as e:
+                    console.print(f"\n[bold red]Error during streaming:[/] {str(e)}")
+                    import traceback
+
+                    console.print(traceback.format_exc())
+
+            console.print("[bold green]✓[/] Chat processed successfully")
+            return full_response
+        else:
+            # Handle non-streaming case
+            with console.status("[bold yellow]Chatting with LLM...[/]", spinner="dots"):
+                prompt = f"System prompt: {system_prompt}\n\n User message: {message}"
+                job: JobResponse = await self._adapter.llm_call(
+                    session_id=self._session_id,
+                    prompt=prompt,
+                    use_images=bool(images_path),
+                    use_videos=bool(videos_path),
+                )
+                response = await self._adapter.track_job(
+                    job_id=job.job_id,
+                )
+
+            if display_in_console:
+                console.print(
+                    Panel(response.result, title="Response", border_style="green")
+                )
+            console.print("[bold green]✓[/] Chat processed successfully")
+            return response.result
 
     async def cleanup_chat(self) -> None:
         """Cleanup the chat history.

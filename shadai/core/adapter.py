@@ -40,18 +40,26 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
-        self.core_base_url = "https://core.shadai.ai"
-        self.core_api_base_url = "https://coreapi.shadai.ai"
+        self.core_base_url = "http://127.0.0.1:8000"
+        self.core_ws_base_url = "ws://127.0.0.1:8000"
+        self.core_api_base_url = "https://devcoreapi.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
         self._session = requests.Session()
         self._session.headers.update({"ApiKey": self.api_key})
 
-    def _construct_url(self, endpoint: str, use_core_api_base_url: bool = False) -> str:
+    def _construct_url(
+        self,
+        endpoint: str,
+        use_core_api_base_url: bool = False,
+        use_core_ws_base_url: bool = False,
+    ) -> str:
         """Construct the full URL from the base URL and endpoint."""
         if use_core_api_base_url:
             base_url = self.core_api_base_url
+        elif use_core_ws_base_url:
+            base_url = self.core_ws_base_url
         else:
             base_url = self.core_base_url
         if not base_url.endswith("/"):
@@ -647,6 +655,48 @@ class IntelligenceAdapter:
                 },
             )
             return job
+        except Exception as e:
+            logger.error("Failed to chat: %s", str(e))
+            raise IntelligenceAPIError(f"Failed to chat: {str(e)}") from e
+
+    async def chat_ws(
+        self,
+        session_id: str,
+        message: str,
+        system_prompt: Optional[str] = None,
+        use_images: bool = False,
+        use_videos: bool = False,
+    ) -> Tuple[JobResponse, str]:
+        """Chat with the LLM using the session context and knowledge base.
+
+        Args:
+            session_id (str): The session identifier
+            message (str): The message to send to the LLM
+            system_prompt (Optional[str]): The system prompt to use for the chat
+            use_images (bool): Whether to use images
+            use_videos (bool): Whether to use videos
+
+        Returns:
+            Tuple[JobResponse, str]: The job response and the websocket URL
+        """
+        try:
+            job = await self.create_job(
+                input=json.dumps(
+                    {
+                        "session_id": session_id,
+                        "message": message,
+                        "system_prompt": system_prompt,
+                        "use_images": use_images,
+                        "use_videos": use_videos,
+                    }
+                ),
+                job_type=JobType.CHAT,
+                session_id=session_id,
+            )
+            url = self._construct_url(
+                endpoint=f"/inference/ws/chat/{session_id}", use_core_ws_base_url=True
+            )
+            return job, url
         except Exception as e:
             logger.error("Failed to chat: %s", str(e))
             raise IntelligenceAPIError(f"Failed to chat: {str(e)}") from e
