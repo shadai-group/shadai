@@ -40,8 +40,8 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
-        self.core_base_url = "https://core.shadai.ai"
-        self.core_api_base_url = "https://coreapi.shadai.ai"
+        self.core_base_url = "http://127.0.0.1:8000"
+        self.core_api_base_url = "https://devcoreapi.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
@@ -655,15 +655,16 @@ class IntelligenceAdapter:
         self,
         session_id: str,
         prompt: str,
-        use_images: bool = False,
+        use_history: bool = False,
+        use_media: bool = False,
     ) -> JobResponse:
         """Call the LLM with the prompt.
 
         Args:
             session_id (str): The session identifier
             prompt (str): The prompt to send to the LLM
-            use_images (bool): Whether to use images
-
+            use_history (bool): Whether to use the history of the chat
+            use_media (bool): Whether to use media
         Returns:
             JobResponse: The job response
         """
@@ -673,7 +674,8 @@ class IntelligenceAdapter:
                     {
                         "session_id": session_id,
                         "prompt": prompt,
-                        "use_images": use_images,
+                        "use_history": use_history,
+                        "use_media": use_media,
                     }
                 ),
                 job_type=JobType.COMPLETION,
@@ -685,7 +687,8 @@ class IntelligenceAdapter:
                 params={"job_id": job.job_id, "session_id": session_id},
                 json={
                     "prompt": prompt,
-                    "use_images": use_images,
+                    "use_history": use_history,
+                    "use_media": use_media,
                 },
             )
             return job
