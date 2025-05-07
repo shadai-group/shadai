@@ -47,4 +47,4 @@ async def call_llm_without_media():
 
 if __name__ == "__main__":
     asyncio.run(call_llm_with_media())
-    # asyncio.run(call_llm_without_media())
+    asyncio.run(call_llm_without_media())

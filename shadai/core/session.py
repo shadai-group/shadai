@@ -439,7 +439,7 @@ class Session:
             "[bold yellow]Getting session summary...[/]", spinner="dots"
         ):
             job: JobResponse = await self._adapter.get_knowledge_summary(
-                self._session_id
+                session_id=self._session_id
             )
             response: JobResponse = await self._adapter.track_job(
                 job_id=job.job_id,
@@ -606,8 +606,6 @@ class Session:
         self,
         message: str,
         system_prompt: Optional[str] = None,
-        images_path: Optional[str] = None,
-        videos_path: Optional[str] = None,
         use_history: bool = True,
         display_in_console: bool = True,
     ) -> str:
@@ -616,25 +614,12 @@ class Session:
         Args:
             message (str): The message to send to the LLM
             system_prompt (Optional[str]): The system prompt to use for the chat
-            images_path (Optional[str]): The path to the images
-            videos_path (Optional[str]): The path to the videos
             use_history (bool): Whether to use the history of the chat
             display_in_console (bool): Whether to display the chat in the console
 
         Returns:
             str: The chat response
         """
-        if images_path or videos_path:
-            if not await self._validate_files(
-                images_path=images_path,
-                videos_path=videos_path,
-            ):
-                return
-            await self._upload_files(
-                input_dir=images_path if images_path else videos_path,
-                session_id=self._session_id,
-                destination="images" if images_path else "videos",
-            )
         console.print("\n[bold blue]🚀 Chatting with LLM...[/]")
         if system_prompt:
             console.print("\n[bold yellow]✨ Input System Prompt[/]")
@@ -649,8 +634,6 @@ class Session:
                     session_id=self._session_id,
                     message=message,
                     system_prompt=system_prompt,
-                    use_images=bool(images_path),
-                    use_videos=bool(videos_path),
                 )
                 response = await self._adapter.track_job(
                     job_id=job.job_id,
@@ -660,8 +643,6 @@ class Session:
                 job: JobResponse = await self._adapter.llm_call(
                     session_id=self._session_id,
                     prompt=prompt,
-                    use_images=bool(images_path),
-                    use_videos=bool(videos_path),
                 )
                 response = await self._adapter.track_job(
                     job_id=job.job_id,

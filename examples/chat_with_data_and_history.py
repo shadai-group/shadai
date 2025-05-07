@@ -11,7 +11,7 @@ from shadai.core.session import Session
 input_dir = os.path.join(os.path.dirname(__file__), "data")
 
 
-async def chat_with_data_and_history():
+async def chat_with_data():
     """
     This function chats with the data and history.
     """
@@ -22,14 +22,13 @@ async def chat_with_data_and_history():
         await session.chat(
             message="¿Qué dice la constitución sobre la libertad de expresión?",
             system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
-            use_history=True,
             display_in_console=True,
         )
         # This is optional to run, it cleans up the chat history
         await session.cleanup_chat()
 
 
-async def chat_only_with_history():
+async def chat_without_data():
     """
     This function chats only with the history.
     """
@@ -39,7 +38,6 @@ async def chat_only_with_history():
         await session.chat(
             message="¿Qué dice la constitución sobre la libertad de expresión?",
             system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
-            use_history=True,
             display_in_console=True,
         )
         # This is optional to run, it cleans up the chat history
@@ -47,5 +45,5 @@ async def chat_only_with_history():
 
 
 if __name__ == "__main__":
-    asyncio.run(chat_with_data_and_history())
-    asyncio.run(chat_only_with_history())
+    asyncio.run(chat_with_data())
+    asyncio.run(chat_without_data())

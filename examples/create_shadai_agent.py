@@ -36,7 +36,7 @@ def get_constitutional_article(article_id: str) -> str:
 
 async def main():
     async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
+        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", language="es", delete=True
     ) as session:
         await session.ingest(input_dir=input_dir)
         agent = ToolAgent(

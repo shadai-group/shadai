@@ -26,7 +26,7 @@ async def ingest_without_alias() -> None:
     This function ingests a directory of documents into a session without a given alias.
     """
     async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
+        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=False
     ) as session:
         await session.ingest(input_dir=input_dir)
 

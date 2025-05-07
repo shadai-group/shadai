@@ -14,7 +14,6 @@ from shadai.core.exceptions import (
     BadRequestError,
     ConfigurationError,
     IntelligenceAPIError,
-    NetworkError,
     NotFoundError,
     ServerPermissionError,
     UnauthorizedError,
@@ -40,8 +39,8 @@ class IntelligenceAdapter:
         Raises:
             ConfigurationError: If SHADAI_API_KEY is not set.
         """
-        self.core_base_url = "http://127.0.0.1:8000"
-        self.core_api_base_url = "https://devcoreapi.shadai.ai"
+        self.core_base_url = "https://core.shadai.ai"
+        self.core_api_base_url = "https://coreapi.shadai.ai"
         self.api_key = os.getenv("SHADAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError("SHADAI_API_KEY environment variable not set")
@@ -130,7 +129,7 @@ class IntelligenceAdapter:
                 status_code, IntelligenceAPIError(f"HTTP error {status_code}: {e}")
             )
 
-        except requests.exceptions.Timeout:
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
             return await self._make_request(
                 method=method,
                 endpoint=endpoint,
@@ -141,11 +140,8 @@ class IntelligenceAdapter:
                 **kwargs,
             )
 
-        except (
-            requests.exceptions.ConnectionError,
-            requests.exceptions.RequestException,
-        ) as e:
-            raise NetworkError(f"Request failed: {e}")
+        except (requests.exceptions.RequestException,) as e:
+            raise IntelligenceAPIError(f"Request failed: {e}")
 
         except Exception as e:
             raise IntelligenceAPIError(f"Unexpected error: {e}")
@@ -554,7 +550,6 @@ class IntelligenceAdapter:
 
         Args:
             session_id (str): The session identifier
-
         Returns:
             JobResponse: The job response
         """
@@ -565,7 +560,10 @@ class IntelligenceAdapter:
             await self._make_request(
                 method="GET",
                 endpoint="/retrieval/summary",
-                params={"job_id": job.job_id, "session_id": session_id},
+                params={
+                    "job_id": job.job_id,
+                    "session_id": session_id,
+                },
             )
             return job
         except Exception as e:
@@ -606,8 +604,6 @@ class IntelligenceAdapter:
         session_id: str,
         message: str,
         system_prompt: Optional[str] = None,
-        use_images: bool = False,
-        use_videos: bool = False,
     ) -> JobResponse:
         """Chat with the LLM using the session context and knowledge base.
 
@@ -615,8 +611,6 @@ class IntelligenceAdapter:
             session_id (str): The session identifier
             message (str): The message to send to the LLM
             system_prompt (Optional[str]): The system prompt to use for the chat
-            use_images (bool): Whether to use images
-            use_videos (bool): Whether to use videos
 
         Returns:
             JobResponse: The job response
@@ -628,8 +622,6 @@ class IntelligenceAdapter:
                         "session_id": session_id,
                         "message": message,
                         "system_prompt": system_prompt,
-                        "use_images": use_images,
-                        "use_videos": use_videos,
                     }
                 ),
                 job_type=JobType.CHAT,
@@ -642,8 +634,6 @@ class IntelligenceAdapter:
                 json={
                     "message": message,
                     "system_prompt": system_prompt,
-                    "use_images": use_images,
-                    "use_videos": use_videos,
                 },
             )
             return job

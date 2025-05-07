@@ -13,7 +13,10 @@ input_dir = os.path.join(os.path.dirname(__file__), "data")
 
 async def main():
     async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
+        llm_model=AIModels.GEMINI_2_0_FLASH,
+        type="standard",
+        language="es",
+        delete=False,
     ) as session:
         await session.ingest(input_dir=input_dir)
         await session.summarize(display_in_console=True)
