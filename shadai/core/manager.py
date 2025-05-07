@@ -5,7 +5,7 @@ from rich.table import Table
 
 from shadai.core.adapter import IntelligenceAdapter
 from shadai.core.decorators import handle_errors
-from shadai.core.schemas import SessionResponse
+from shadai.core.schemas import JobResponse, SessionResponse
 
 console = Console()
 
@@ -76,5 +76,8 @@ class Manager:
         Cleanup the namespace
         """
         with console.status("[bold blue]🚀 Cleaning up namespace...[/]"):
-            await self._adapter.cleanup_namespace()
+            job: JobResponse = await self._adapter.cleanup_namespace()
+            await self._adapter.track_job(
+                job_id=job.job_id,
+            )
             console.print("[bold green]✓[/] Namespace cleaned up successfully")

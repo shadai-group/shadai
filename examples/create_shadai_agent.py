@@ -7,6 +7,7 @@ from typing import Dict
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shadai.core.agents import ToolAgent
+from shadai.core.enums import AIModels
 from shadai.core.session import Session
 
 input_dir = os.path.join(os.path.dirname(__file__), "data")
@@ -34,7 +35,9 @@ def get_constitutional_article(article_id: str) -> str:
 
 
 async def main():
-    async with Session(type="standard", delete=True) as session:
+    async with Session(
+        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", language="es", delete=True
+    ) as session:
         await session.ingest(input_dir=input_dir)
         agent = ToolAgent(
             session=session,

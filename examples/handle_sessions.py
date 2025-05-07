@@ -25,11 +25,11 @@ async def create_session(alias: Optional[str] = None) -> Session:
     async with Session(
         alias=alias,
         type="standard",
-        llm_model=AIModels.CLAUDE_3_7_SONNET,
+        llm_model=AIModels.GEMINI_2_0_FLASH,
         llm_temperature=0.7,
         llm_max_tokens=4096,
         query_mode=QueryMode.HYBRID,
-        delete=True,
+        delete=False,
     ) as session:
         return session
 
@@ -95,9 +95,13 @@ async def delete_session(
 
 
 async def main():
-    await create_session(alias="test-session")
+    session_created = await create_session(alias="test-session")
+    session_id = session_created.id
+    session_retrieved = await get_existing_session_with_session_id(
+        session_id=session_id
+    )
+    await delete_session(session_id=session_retrieved.id)
     await list_sessions()
-    await delete_session(session_id="YOUR SESSION ID")
     await cleanup_namespace()
 
 

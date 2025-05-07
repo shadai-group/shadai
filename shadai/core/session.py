@@ -19,12 +19,7 @@ from rich.progress import (
 from rich.table import Table
 
 from shadai.core.adapter import IntelligenceAdapter
-from shadai.core.enums import (
-    AIModels,
-    ImageFileExtensions,
-    QueryMode,
-    VideoFileExtensions,
-)
+from shadai.core.enums import AIModels, MediaFileExtensions, QueryMode
 from shadai.core.exceptions import IngestionError
 from shadai.core.files import FileManager
 from shadai.core.schemas import JobResponse, Query, QueryResponse, SessionResponse
@@ -164,7 +159,7 @@ class Session:
         self,
         input_dir: str,
         session_id: str,
-        destination: Literal["documents", "images", "videos"] = "documents",
+        destination: Literal["documents", "media"] = "documents",
         max_concurrent_uploads: int = 5,
     ) -> List[Path]:
         """Upload files from the input directory in parallel.
@@ -172,7 +167,7 @@ class Session:
         Args:
             input_dir (str): The path to the directory containing the files to upload.
             session_id (str): The session ID to use for uploading.
-            destination (Literal["documents", "images", "videos"]): The destination to upload the files to.
+            destination (Literal["documents", "media"]): The destination to upload the files to.
             max_concurrent_uploads (int): The maximum number of files to upload concurrently.
 
         Returns:
@@ -189,7 +184,11 @@ class Session:
         if not session_id:
             raise ValueError("Session ID is required")
 
-        files = [f for f in input_path.rglob("*") if f.is_file()]
+        files = [
+            f
+            for f in input_path.rglob("*")
+            if f.is_file() and not f.name.startswith(".")
+        ]
         if not files:
             raise ValueError(f"No files found in directory: {input_dir}")
 
@@ -440,7 +439,7 @@ class Session:
             "[bold yellow]Getting session summary...[/]", spinner="dots"
         ):
             job: JobResponse = await self._adapter.get_knowledge_summary(
-                self._session_id
+                session_id=self._session_id
             )
             response: JobResponse = await self._adapter.track_job(
                 job_id=job.job_id,
@@ -480,26 +479,16 @@ class Session:
 
     async def _validate_files(
         self,
-        images_path: Optional[str] = None,
-        videos_path: Optional[str] = None,
+        media_path: Optional[str] = None,
     ) -> bool:
         """Validate media files.
 
         Args:
-            images_path (Optional[str]): The path to the images directory.
-            videos_path (Optional[str]): The path to the videos directory.
+            media_path (Optional[str]): The path to the media directory.
 
         Returns:
             bool: True if files are valid, False otherwise.
         """
-        # Early validation for mutually exclusive options
-        if images_path and videos_path:
-            console.print("[bold red]✗[/] Cannot use both images and videos")
-            return False
-
-        # If neither is provided, nothing to validate
-        if not (images_path or videos_path):
-            return False
 
         def validate_media_path(
             path: str, media_type: str, allowed_extensions: set
@@ -519,18 +508,21 @@ class Session:
                 )
                 return False
 
-            # Validate files
-            files = list(path_obj.iterdir())
+            # Get all files, excluding hidden files (those starting with a dot)
+            files = [
+                f
+                for f in path_obj.iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            ]
+
             if not files:
                 console.print(
-                    f"[bold red]✗[/] No files found in {media_type} directory"
+                    f"[bold red]✗[/] No valid files found in {media_type} directory (hidden files are excluded)"
                 )
                 return False
 
             invalid_files = [
-                f.name
-                for f in files
-                if f.is_file() and f.suffix.lower() not in allowed_extensions
+                f.name for f in files if f.suffix.lower() not in allowed_extensions
             ]
 
             if invalid_files:
@@ -545,28 +537,22 @@ class Session:
                 )
                 return False
 
+            file_count = len(files)
+            console.print(f"[bold cyan]Found {file_count} valid {media_type} files[/]")
             return True
 
-        # Determine which type to validate
-        if images_path:
-            is_valid = validate_media_path(
-                images_path, "image", ImageFileExtensions.values()
-            )
-            if is_valid:
-                console.print("[bold green]✓[/] Images path and files are valid")
-            return is_valid
-        else:  # videos_path must be set based on earlier checks
-            is_valid = validate_media_path(
-                videos_path, "video", VideoFileExtensions.values()
-            )
-            if is_valid:
-                console.print("[bold green]✓[/] Videos path and files are valid")
-            return is_valid
+        is_valid = validate_media_path(
+            media_path, "media", MediaFileExtensions.values()
+        )
+        if is_valid:
+            console.print("[bold green]✓[/] Media path and files are valid")
+        return is_valid
 
     async def llm_call(
         self,
         prompt: str,
-        images_path: Optional[str] = None,
+        use_history: bool = False,
+        media_path: Optional[str] = None,
         display_prompt: bool = False,
         display_in_console: bool = True,
     ) -> str:
@@ -574,22 +560,25 @@ class Session:
 
         Args:
             prompt (str): The prompt to call the LLM with.
-            images_path (Optional[str]): The path to the images.
+            use_history (bool): Whether to use the history of the chat.
+            media_path (Optional[str]): The path to the media.
             display_prompt (bool): Whether to display the prompt in the console.
             display_in_console (bool): Whether to display the response in the console.
 
         Returns:
             str: The response from the LLM.
         """
-        if images_path:
+        if media_path:
             if not await self._validate_files(
-                images_path=images_path,
+                media_path=media_path,
             ):
                 return
+            input_dir = media_path
+            destination = "media"
             await self._upload_files(
-                input_dir=images_path,
+                input_dir=input_dir,
                 session_id=self._session_id,
-                destination="images",
+                destination=destination,
             )
 
         console.print("\n[bold blue]🚀 Calling LLM...[/]")
@@ -600,7 +589,8 @@ class Session:
             job: JobResponse = await self._adapter.llm_call(
                 session_id=self._session_id,
                 prompt=prompt,
-                use_images=bool(images_path),
+                use_history=use_history,
+                use_media=bool(media_path),
             )
             response: JobResponse = await self._adapter.track_job(
                 job_id=job.job_id,
@@ -616,8 +606,6 @@ class Session:
         self,
         message: str,
         system_prompt: Optional[str] = None,
-        images_path: Optional[str] = None,
-        videos_path: Optional[str] = None,
         use_history: bool = True,
         display_in_console: bool = True,
     ) -> str:
@@ -626,25 +614,12 @@ class Session:
         Args:
             message (str): The message to send to the LLM
             system_prompt (Optional[str]): The system prompt to use for the chat
-            images_path (Optional[str]): The path to the images
-            videos_path (Optional[str]): The path to the videos
             use_history (bool): Whether to use the history of the chat
             display_in_console (bool): Whether to display the chat in the console
 
         Returns:
             str: The chat response
         """
-        if images_path or videos_path:
-            if not await self._validate_files(
-                images_path=images_path,
-                videos_path=videos_path,
-            ):
-                return
-            await self._upload_files(
-                input_dir=images_path if images_path else videos_path,
-                session_id=self._session_id,
-                destination="images" if images_path else "videos",
-            )
         console.print("\n[bold blue]🚀 Chatting with LLM...[/]")
         if system_prompt:
             console.print("\n[bold yellow]✨ Input System Prompt[/]")
@@ -659,8 +634,6 @@ class Session:
                     session_id=self._session_id,
                     message=message,
                     system_prompt=system_prompt,
-                    use_images=bool(images_path),
-                    use_videos=bool(videos_path),
                 )
                 response = await self._adapter.track_job(
                     job_id=job.job_id,
@@ -670,8 +643,6 @@ class Session:
                 job: JobResponse = await self._adapter.llm_call(
                     session_id=self._session_id,
                     prompt=prompt,
-                    use_images=bool(images_path),
-                    use_videos=bool(videos_path),
                 )
                 response = await self._adapter.track_job(
                     job_id=job.job_id,
