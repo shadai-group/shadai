@@ -39,6 +39,7 @@ class JobType(str, Enum):
     CHAT = "chat"
     CLEANUP_CHAT = "cleanup_chat"
     CLEANUP_NAMESPACE = "cleanup_namespace"
+    AGENT = "agent"
 
 
 class JobResponse(BaseModel):

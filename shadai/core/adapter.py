@@ -734,3 +734,53 @@ class IntelligenceAdapter:
             logger.error(f"Error deleting chat: {str(e)}")
         finally:
             setattr(self, "_chat_cleanup_in_progress", False)
+
+    async def agent_call(
+        self,
+        name: str,
+        description: str,
+        agent_prompt: str,
+        message: str,
+        tools: List[str],
+        session_id: str,
+    ) -> JobResponse:
+        """
+        Call the agent with the given tools
+
+        Args:
+            name (str): The name of the agent
+            description (str): The description of the agent
+            agent_prompt (str): The prompt to send to the agent
+            message (str): The message to send to the agent
+            tools (List[str]): The tools to use for the agent
+            session_id (str): The session identifier
+
+        Returns:
+            JobResponse: The job response
+        """
+        job = await self.create_job(
+            input=json.dumps(
+                {
+                    "name": name,
+                    "description": description,
+                    "agent_prompt": agent_prompt,
+                    "message": message,
+                    "session_id": session_id,
+                }
+            ),
+            job_type=JobType.AGENT,
+            session_id=session_id,
+        )
+        await self._make_request(
+            method="POST",
+            endpoint="/inference/agent",
+            params={"job_id": job.job_id, "session_id": session_id},
+            json={
+                "name": name,
+                "description": description,
+                "agent_prompt": agent_prompt,
+                "message": message,
+                "tools": tools,
+            },
+        )
+        return job

@@ -1,11 +1,10 @@
-from typing import Any, Awaitable, Callable, Optional, Union
+import base64
+from typing import Any, Awaitable, Callable, List, Optional, Union
+
+import dill as pickle
 
 from shadai.core.decorators import handle_errors
-from shadai.core.exceptions import (
-    AgentConfigurationError,
-    AgentExecutionError,
-    AgentFunctionError,
-)
+from shadai.core.exceptions import AgentConfigurationError, AgentExecutionError, AgentFunctionError
 from shadai.core.session import Session
 
 
@@ -117,3 +116,62 @@ class ToolAgent:
             raise AgentExecutionError("LLM call returned None")
 
         return response
+
+
+class Agent:
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        agent_prompt: str,
+        session: Session,
+        display_prompt: bool = False,
+        display_in_console: bool = True,
+    ):
+        self.name = name
+        self.description = description
+        self.agent_prompt = agent_prompt
+        self.session = session
+        self.mapped_functions = None
+        self.display_prompt = display_prompt
+        self.display_in_console = display_in_console
+
+    async def add_tools(
+        self, tools: List[Union[Callable[..., Any], Callable[..., Awaitable[Any]]]]
+    ) -> None:
+        """
+        Add tools to the agent
+
+        Args:
+            tools: List of tools to add to the agent
+        """
+        try:
+            self.mapped_functions = [
+                base64.b64encode(pickle.dumps(tool)).decode("ascii") for tool in tools
+            ]
+        except Exception as e:
+            raise AgentConfigurationError(f"Failed to add tools: {str(e)}") from e
+
+    async def run(self, input: str) -> Optional[str]:
+        """
+        Run the agent with the given tools
+
+        Args:
+            input (str): The input to the agent
+
+        Returns:
+            Optional[str]: The response from the agent
+        """
+        try:
+            response = await self.session.agent_run(
+                name=self.name,
+                description=self.description,
+                agent_prompt=self.agent_prompt,
+                message=input,
+                tools=self.mapped_functions,
+                display_prompt=self.display_prompt,
+                display_in_console=self.display_in_console,
+            )
+            return response
+        except Exception as e:
+            raise AgentExecutionError(f"Failed to call agent: {str(e)}") from e
