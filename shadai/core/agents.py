@@ -4,7 +4,11 @@ from typing import Any, Awaitable, Callable, List, Optional, Union
 import dill as pickle
 
 from shadai.core.decorators import handle_errors
-from shadai.core.exceptions import AgentConfigurationError, AgentExecutionError, AgentFunctionError
+from shadai.core.exceptions import (
+    AgentConfigurationError,
+    AgentExecutionError,
+    AgentFunctionError,
+)
 from shadai.core.session import Session
 
 
@@ -125,6 +129,7 @@ class Agent:
         description: str,
         agent_prompt: str,
         session: Session,
+        use_history: bool = False,
         display_prompt: bool = False,
         display_in_console: bool = True,
     ):
@@ -135,6 +140,7 @@ class Agent:
         self.mapped_functions = None
         self.display_prompt = display_prompt
         self.display_in_console = display_in_console
+        self.use_history = use_history
 
     async def add_tools(
         self, tools: List[Union[Callable[..., Any], Callable[..., Awaitable[Any]]]]
@@ -168,6 +174,7 @@ class Agent:
                 description=self.description,
                 agent_prompt=self.agent_prompt,
                 message=input,
+                use_history=self.use_history,
                 tools=self.mapped_functions,
                 display_prompt=self.display_prompt,
                 display_in_console=self.display_in_console,

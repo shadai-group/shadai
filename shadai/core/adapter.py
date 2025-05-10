@@ -741,6 +741,7 @@ class IntelligenceAdapter:
         description: str,
         agent_prompt: str,
         message: str,
+        use_history: bool,
         tools: List[str],
         session_id: str,
     ) -> JobResponse:
@@ -752,6 +753,7 @@ class IntelligenceAdapter:
             description (str): The description of the agent
             agent_prompt (str): The prompt to send to the agent
             message (str): The message to send to the agent
+            use_history (bool): Whether to use the history of the chat
             tools (List[str]): The tools to use for the agent
             session_id (str): The session identifier
 
@@ -766,6 +768,7 @@ class IntelligenceAdapter:
                     "agent_prompt": agent_prompt,
                     "message": message,
                     "session_id": session_id,
+                    "use_history": use_history,
                 }
             ),
             job_type=JobType.AGENT,
@@ -780,6 +783,7 @@ class IntelligenceAdapter:
                 "description": description,
                 "agent_prompt": agent_prompt,
                 "message": message,
+                "use_history": use_history,
                 "tools": tools,
             },
         )
