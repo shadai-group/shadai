@@ -701,3 +701,55 @@ class Session:
             setattr(self, "_session_cleaned_up", True)
         finally:
             setattr(self, "_cleanup_in_progress", False)
+
+    async def agent_run(
+        self,
+        name: str,
+        description: str,
+        agent_prompt: str,
+        message: str,
+        use_history: bool,
+        tools: List[str],
+        display_prompt: bool = False,
+        display_in_console: bool = True,
+    ) -> str:
+        """
+        Run the agent with the given tools
+
+        Args:
+            name (str): The name of the agent
+            description (str): The description of the agent
+            agent_prompt (str): The prompt of the agent
+            message (str): The message to send to the agent
+            use_history (bool): Whether to use the history of the chat
+            tools (List[str]): The tools to use for the agent
+            display_prompt (bool): Whether to display the prompt in the console
+            display_in_console (bool): Whether to display the response in the console
+
+        Returns:
+            str: The response from the agent
+        """
+        console.print("\n[bold blue]🚀 Calling Smart Agent...[/]")
+        if display_prompt:
+            console.print(Panel(agent_prompt, title="Agent Prompt"))
+
+        console.print(Panel(message, title="User Input"))
+        with console.status("[bold yellow]Calling Smart Agent...[/]", spinner="dots"):
+            job: JobResponse = await self._adapter.agent_call(
+                name=name,
+                description=description,
+                agent_prompt=agent_prompt,
+                message=message,
+                use_history=use_history,
+                tools=tools,
+                session_id=self._session_id,
+            )
+            response: JobResponse = await self._adapter.track_job(
+                job_id=job.job_id,
+            )
+        if display_in_console:
+            console.print(
+                Panel(response.result, title="Response", border_style="green")
+            )
+        console.print("[bold green]✓[/] Smart Agent call processed successfully")
+        return response.result
