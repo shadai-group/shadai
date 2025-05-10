@@ -708,6 +708,7 @@ class Session:
         description: str,
         agent_prompt: str,
         message: str,
+        use_history: bool,
         tools: List[str],
         display_prompt: bool = False,
         display_in_console: bool = True,
@@ -720,6 +721,7 @@ class Session:
             description (str): The description of the agent
             agent_prompt (str): The prompt of the agent
             message (str): The message to send to the agent
+            use_history (bool): Whether to use the history of the chat
             tools (List[str]): The tools to use for the agent
             display_prompt (bool): Whether to display the prompt in the console
             display_in_console (bool): Whether to display the response in the console
@@ -738,6 +740,7 @@ class Session:
                 description=description,
                 agent_prompt=agent_prompt,
                 message=message,
+                use_history=use_history,
                 tools=tools,
                 session_id=self._session_id,
             )

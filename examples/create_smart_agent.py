@@ -72,6 +72,7 @@ async def call_calculator_agent():
             Realiza los cálculos utilizando herramientas y devuelve el resultado de manera amigable.
             """,
             session=session,
+            use_history=True,
         )
         await agent.add_tools(tools=[add, multiply])
 
@@ -93,6 +94,7 @@ async def call_web_search_agent():
             Eres un investigador experto con acceso a búsqueda web y una calculadora simple.
             """,
             session=session,
+            use_history=True,
         )
         await agent.add_tools(tools=[add, multiply, web_search])
 
