@@ -149,7 +149,7 @@ class IntelligenceAdapter:
     async def track_job(
         self,
         job_id: str,
-        interval: float = 30.0,
+        interval: float = 1.0,
         timeout: float = 300.0,
     ) -> JobResponse:
         """Track a job until completion without progress updates.
@@ -186,7 +186,7 @@ class IntelligenceAdapter:
     async def track_job_with_progress(
         self,
         job_id: str,
-        interval: float = 30.0,
+        interval: float = 1.0,
         timeout: float = 300.0,
     ) -> AsyncGenerator[Union[float, JobResponse], None]:
         """Track a job until completion with progress updates.
