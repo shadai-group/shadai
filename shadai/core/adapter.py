@@ -149,7 +149,7 @@ class IntelligenceAdapter:
     async def track_job(
         self,
         job_id: str,
-        interval: float = 30.0,
+        interval: float = 1.0,
         timeout: float = 300.0,
     ) -> JobResponse:
         """Track a job until completion without progress updates.
@@ -186,7 +186,7 @@ class IntelligenceAdapter:
     async def track_job_with_progress(
         self,
         job_id: str,
-        interval: float = 30.0,
+        interval: float = 1.0,
         timeout: float = 300.0,
     ) -> AsyncGenerator[Union[float, JobResponse], None]:
         """Track a job until completion with progress updates.
@@ -734,3 +734,57 @@ class IntelligenceAdapter:
             logger.error(f"Error deleting chat: {str(e)}")
         finally:
             setattr(self, "_chat_cleanup_in_progress", False)
+
+    async def agent_call(
+        self,
+        name: str,
+        description: str,
+        agent_prompt: str,
+        message: str,
+        use_history: bool,
+        tools: List[str],
+        session_id: str,
+    ) -> JobResponse:
+        """
+        Call the agent with the given tools
+
+        Args:
+            name (str): The name of the agent
+            description (str): The description of the agent
+            agent_prompt (str): The prompt to send to the agent
+            message (str): The message to send to the agent
+            use_history (bool): Whether to use the history of the chat
+            tools (List[str]): The tools to use for the agent
+            session_id (str): The session identifier
+
+        Returns:
+            JobResponse: The job response
+        """
+        job = await self.create_job(
+            input=json.dumps(
+                {
+                    "name": name,
+                    "description": description,
+                    "agent_prompt": agent_prompt,
+                    "message": message,
+                    "session_id": session_id,
+                    "use_history": use_history,
+                }
+            ),
+            job_type=JobType.AGENT,
+            session_id=session_id,
+        )
+        await self._make_request(
+            method="POST",
+            endpoint="/inference/agent",
+            params={"job_id": job.job_id, "session_id": session_id},
+            json={
+                "name": name,
+                "description": description,
+                "agent_prompt": agent_prompt,
+                "message": message,
+                "use_history": use_history,
+                "tools": tools,
+            },
+        )
+        return job
