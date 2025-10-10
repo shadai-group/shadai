@@ -4,7 +4,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shadai import Session, Shadai, tool
+from shadai import Shadai, tool
 from shadai.timing import timed
 
 
@@ -223,8 +223,6 @@ def get_trend_analysis(topic: str, period: str = "2024") -> str:
 
 @timed
 async def main() -> None:
-    shadai = Shadai()
-
     tools = [
         get_market_data,
         get_customer_feedback,
@@ -239,8 +237,8 @@ async def main() -> None:
     insights for strategy planning.
     """
 
-    async with Session(name="test 6") as session:
-        async for chunk in shadai.agent(prompt=prompt, tools=tools, session=session):
+    async with Shadai(name="test 6") as shadai:
+        async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
 
 

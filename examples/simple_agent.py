@@ -4,7 +4,7 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shadai import Session, Shadai, tool
+from shadai import Shadai, tool
 from shadai.timing import timed
 
 
@@ -88,8 +88,6 @@ def send_email(recipient: str, subject: str, body: str) -> str:
 
 @timed
 async def main() -> None:
-    shadai = Shadai()
-
     tools = [search_database, generate_report, send_email]
 
     prompt = """
@@ -97,8 +95,8 @@ async def main() -> None:
     team@example.com with subject "Revenue Report"
     """
 
-    async with Session(name="test 6") as session:
-        async for chunk in shadai.agent(prompt=prompt, tools=tools, session=session):
+    async with Shadai(name="test 6") as shadai:
+        async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
 
 

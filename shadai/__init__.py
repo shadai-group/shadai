@@ -7,15 +7,15 @@ Beautiful, Pythonic client for interacting with Shadai AI services.
 Quick Start:
     >>> from shadai import Shadai, tool
     >>>
-    >>> # Initialize client
-    >>> shadai = Shadai(api_key="your-api-key")
+    >>> # Query knowledge base with session management
+    >>> async with Shadai(name="my-session") as shadai:
+    ...     async for chunk in shadai.query(query="What is machine learning?"):
+    ...         print(chunk, end="", flush=True)
     >>>
-    >>> # Query knowledge base (one-step)
-    >>> async for chunk in shadai.query(
-    ...     query="What is machine learning?",
-    ...     session_uuid="your-session-uuid"
-    ... ):
-    ...     print(chunk, end="", flush=True)
+    >>> # Create temporal session (auto-deleted)
+    >>> async with Shadai(temporal=True) as shadai:
+    ...     async for chunk in shadai.query(query="What is AI?"):
+    ...         print(chunk, end="", flush=True)
     >>>
     >>> # Define tools with automatic schema inference
     >>> @tool
@@ -29,11 +29,12 @@ Quick Start:
     ...     return "results"
     >>>
     >>> # Use intelligent agent (plan → execute → synthesize)
-    >>> async for chunk in shadai.agent(
-    ...     prompt="Find top 5 users",
-    ...     tools=[search_database]
-    ... ):
-    ...     print(chunk, end="", flush=True)
+    >>> async with Shadai(name="my-session") as shadai:
+    ...     async for chunk in shadai.agent(
+    ...         prompt="Find top 5 users",
+    ...         tools=[search_database]
+    ...     ):
+    ...         print(chunk, end="", flush=True)
 
 Documentation: https://docs.shadai.com
 GitHub: https://github.com/shadai/shadai-client
@@ -50,7 +51,6 @@ from .exceptions import (
     ToolNotFoundError,
 )
 from .models import AgentTool, Tool, ToolDefinition, ToolRegistry, tool
-from .session import Session
 from .tools import (
     EngineTool,
     QueryTool,
@@ -64,8 +64,6 @@ __all__ = [
     "Shadai",
     # Low-level client
     "ShadaiClient",
-    # Session management
-    "Session",
     # Tool classes
     "QueryTool",
     "SummarizeTool",

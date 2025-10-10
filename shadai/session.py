@@ -14,60 +14,35 @@ from .exceptions import InvalidArgumentsError
 
 
 class Session:
-    """Context manager for RAG session lifecycle.
+    """Internal context manager for RAG session lifecycle.
 
     Automatically handles session creation, retrieval, and optional deletion.
 
-    Usage:
-        # Create a new session
-        async with Session() as session:
-            uuid = session.uuid
-
-        # Use existing session by UUID
-        async with Session(uuid="existing-uuid") as session:
-            ...
-
-        # Use existing session by name
-        async with Session(name="my-session") as session:
-            ...
-
-        # Auto-delete session on exit
-        async with Session(delete=True) as session:
-            ...
-
     Args:
-        uuid: Optional session UUID to retrieve existing session
         name: Optional session name to retrieve existing session
-        delete: If True, delete session on context exit (default: False)
-        api_key: Optional API key for authentication
-
-    Raises:
-        InvalidArgumentsError: If both uuid and name are provided
+        temporal: If True, delete session on context exit (default: False)
+        client: ShadaiClient instance
     """
 
     def __init__(
         self,
-        uuid: Optional[str] = None,
         name: Optional[str] = None,
-        delete: bool = False,
+        temporal: bool = False,
+        client: Optional[ShadaiClient] = None,
     ) -> None:
         """Initialize session context manager.
 
         Args:
-            uuid: Optional session UUID to retrieve
             name: Optional session name to retrieve
-            delete: Whether to delete session on exit
+            temporal: Whether to delete session on exit
+            client: ShadaiClient instance (required)
         """
-        if uuid and name:
-            raise InvalidArgumentsError(
-                "Cannot provide both 'uuid' and 'name' parameters. "
-                "Please provide only one or neither."
-            )
+        if not client:
+            raise ValueError("ShadaiClient instance is required")
 
-        self._uuid = uuid
         self._name = name
-        self._delete = delete
-        self._client = ShadaiClient()
+        self._temporal = temporal
+        self._client = client
         self._session_data: Optional[dict] = None
 
     @property
@@ -86,14 +61,7 @@ class Session:
         Returns:
             Session instance with populated session data
         """
-        if self._uuid:
-            # Retrieve by UUID
-            result = await self._client.call_tool(
-                tool_name="session_retrieve",
-                arguments={"session_uuid": self._uuid},
-            )
-            self._session_data = json.loads(result)
-        elif self._name:
+        if self._name:
             # Retrieve by name
             result = await self._client.call_tool(
                 tool_name="session_retrieve",
@@ -119,7 +87,7 @@ class Session:
             exc_val: Exception value if raised
             exc_tb: Exception traceback if raised
         """
-        if self._delete and self.uuid:
+        if self._temporal and self.uuid:
             await self._client.call_tool(
                 tool_name="session_delete",
                 arguments={"session_uuid": self.uuid},

@@ -4,16 +4,14 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shadai import Session, Shadai
+from shadai import Shadai
 from shadai.timing import timed
 
 
 @timed
 async def main() -> None:
-    shadai = Shadai()
-
-    async with Session(name="test 6") as session:
-        async for chunk in shadai.summarize(session=session):
+    async with Shadai(name="test 6") as shadai:
+        async for chunk in shadai.summarize():
             print(chunk, end="", flush=True)
 
 
