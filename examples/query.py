@@ -1,29 +1,21 @@
 import asyncio
-import os
 import sys
+import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dotenv import load_dotenv
-
-from shadai import Shadai
+from shadai import Session, Shadai
 from shadai.timing import timed
-
-load_dotenv()
 
 
 @timed
 async def main() -> None:
-    shadai = Shadai(api_key=os.getenv("SHADAI_API_KEY"))
-
-    session_uuid = "8d42d113-db82-48d3-943c-1ebef8c401f0"
+    shadai = Shadai()
     query = "De qué habla la quinta enmienda?"
 
-    async for chunk in shadai.query(
-        query=query,
-        session_uuid=session_uuid,
-    ):
-        print(chunk, end="", flush=True)
+    async with Session(name="test 6") as session:
+        async for chunk in shadai.query(query=query, session=session):
+            print(chunk, end="", flush=True)
 
 
 if __name__ == "__main__":

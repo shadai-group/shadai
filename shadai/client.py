@@ -8,12 +8,16 @@ import json
 from typing import Any, AsyncIterator, Dict, Optional
 
 import aiohttp
+import os
 
 from .exceptions import (
     AuthenticationError,
     ConnectionError,
     ServerError,
 )
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class ShadaiClient:
@@ -31,7 +35,7 @@ class ShadaiClient:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: Optional[str] = None,
         base_url: str = "http://localhost",
         timeout: int = 30,
     ) -> None:
@@ -47,7 +51,9 @@ class ShadaiClient:
             ValueError: If api_key is not provided
         """
         if not api_key:
-            raise ValueError("API key is required")
+            api_key = os.getenv("SHADAI_API_KEY")
+            if not api_key:
+                raise ValueError("API key is required")
 
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")

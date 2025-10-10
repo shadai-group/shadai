@@ -4,10 +4,18 @@ Shadai Tools - High-Level API Wrappers
 Beautiful, Pythonic interfaces for Shadai AI tools.
 """
 
-from typing import Any, AsyncIterator, Dict, List
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
 
 from .client import ShadaiClient
 from .models import AgentTool
+import os
+
+if TYPE_CHECKING:
+    from .session import Session
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class QueryTool:
@@ -264,6 +272,7 @@ class _AgentOrchestrator:
         self,
         prompt: str,
         tools: List[AgentTool],
+        session_uuid: str,
     ) -> AsyncIterator[str]:
         """
         Execute agentic workflow: plan → execute → synthesize.
@@ -271,6 +280,7 @@ class _AgentOrchestrator:
         Args:
             prompt: User's question or task
             tools: List of AgentTool objects with name, description, implementation, and arguments
+            session_uuid: Session UUID for context and memory
 
         Yields:
             Text chunks from the synthesized final answer
@@ -296,6 +306,7 @@ class _AgentOrchestrator:
             arguments={
                 "prompt": prompt,
                 "available_tools": tool_definitions,
+                "session_uuid": session_uuid,
             },
         )
         plan = json.loads(plan_result)
@@ -355,6 +366,7 @@ class _AgentOrchestrator:
                 "prompt": prompt,
                 "tool_definitions": tool_definitions,
                 "tool_executions": tool_executions,
+                "session_uuid": session_uuid,
             },
         ):
             yield chunk
@@ -400,7 +412,7 @@ class Shadai:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: Optional[str] = None,
         base_url: str = "http://localhost",
         timeout: int = 30,
     ) -> None:
@@ -419,6 +431,10 @@ class Shadai:
             ...     base_url="https://api.shadai.com"
             ... )
         """
+        if not api_key:
+            api_key = os.getenv("SHADAI_API_KEY")
+            if not api_key:
+                raise ValueError("API key not provided")
         self.client = ShadaiClient(
             api_key=api_key,
             base_url=base_url,
@@ -455,7 +471,7 @@ class Shadai:
     async def query(
         self,
         query: str,
-        session_uuid: str,
+        session: "Session",
         use_memory: bool = False,
     ) -> AsyncIterator[str]:
         """
@@ -463,50 +479,52 @@ class Shadai:
 
         Args:
             query: Your question or search query
-            session_uuid: Your session UUID
+            session: Session object
             use_memory: Enable conversation memory
 
         Yields:
             Text chunks from the knowledge base
 
         Examples:
-            >>> async for chunk in shadai.query(
-            ...     query="What is ML?",
-            ...     session_uuid="..."
-            ... ):
-            ...     print(chunk, end="")
+            >>> async with Session(name="my-session") as session:
+            ...     async for chunk in shadai.query(
+            ...         query="What is ML?",
+            ...         session=session
+            ...     ):
+            ...         print(chunk, end="")
         """
-        query_tool = QueryTool(client=self.client, session_uuid=session_uuid)
+        query_tool = QueryTool(client=self.client, session_uuid=session.uuid)
         async for chunk in query_tool(query=query, use_memory=use_memory):
             yield chunk
 
     async def summarize(
         self,
-        session_uuid: str,
+        session: "Session",
         use_memory: bool = False,
     ) -> AsyncIterator[str]:
         """
         Generate summary of all session documents.
 
         Args:
-            session_uuid: Your session UUID
+            session: Session object
             use_memory: Enable conversation memory
 
         Yields:
             Text chunks from the summary
 
         Examples:
-            >>> async for chunk in shadai.summarize(session_uuid="..."):
-            ...     print(chunk, end="")
+            >>> async with Session(name="my-session") as session:
+            ...     async for chunk in shadai.summarize(session=session):
+            ...         print(chunk, end="")
         """
-        summarize_tool = SummarizeTool(client=self.client, session_uuid=session_uuid)
+        summarize_tool = SummarizeTool(client=self.client, session_uuid=session.uuid)
         async for chunk in summarize_tool(use_memory=use_memory):
             yield chunk
 
     async def web_search(
         self,
         prompt: str,
-        session_uuid: str,
+        session: "Session",
         use_web_search: bool = True,
         use_memory: bool = False,
     ) -> AsyncIterator[str]:
@@ -515,7 +533,7 @@ class Shadai:
 
         Args:
             prompt: Your question or search query
-            session_uuid: Your session UUID
+            session: Session object
             use_web_search: Enable web search (default: True)
             use_memory: Enable conversation memory
 
@@ -523,13 +541,14 @@ class Shadai:
             Text chunks from the search results
 
         Examples:
-            >>> async for chunk in shadai.web_search(
-            ...     prompt="Latest AI news",
-            ...     session_uuid="..."
-            ... ):
-            ...     print(chunk, end="")
+            >>> async with Session(name="my-session") as session:
+            ...     async for chunk in shadai.web_search(
+            ...         prompt="Latest AI news",
+            ...         session=session
+            ...     ):
+            ...         print(chunk, end="")
         """
-        search_tool = WebSearchTool(client=self.client, session_uuid=session_uuid)
+        search_tool = WebSearchTool(client=self.client, session_uuid=session.uuid)
         async for chunk in search_tool(
             prompt=prompt,
             use_web_search=use_web_search,
@@ -540,7 +559,7 @@ class Shadai:
     async def engine(
         self,
         prompt: str,
-        session_uuid: str,
+        session: "Session",
         use_knowledge_base: bool = False,
         use_summary: bool = False,
         use_web_search: bool = False,
@@ -551,7 +570,7 @@ class Shadai:
 
         Args:
             prompt: Your question or prompt
-            session_uuid: Your session UUID
+            session: Session object
             use_knowledge_base: Enable knowledge base retrieval
             use_summary: Enable document summarization
             use_web_search: Enable web search
@@ -561,14 +580,15 @@ class Shadai:
             Text chunks from the engine
 
         Examples:
-            >>> async for chunk in shadai.engine(
-            ...     prompt="Analyze my docs",
-            ...     session_uuid="...",
-            ...     use_knowledge_base=True
-            ... ):
-            ...     print(chunk, end="")
+            >>> async with Session(name="my-session") as session:
+            ...     async for chunk in shadai.engine(
+            ...         prompt="Analyze my docs",
+            ...         session=session,
+            ...         use_knowledge_base=True
+            ...     ):
+            ...         print(chunk, end="")
         """
-        engine_tool = EngineTool(client=self.client, session_uuid=session_uuid)
+        engine_tool = EngineTool(client=self.client, session_uuid=session.uuid)
         async for chunk in engine_tool(
             prompt=prompt,
             use_knowledge_base=use_knowledge_base,
@@ -582,6 +602,7 @@ class Shadai:
         self,
         prompt: str,
         tools: List[AgentTool],
+        session: "Session",
     ) -> AsyncIterator[str]:
         """
         Execute intelligent agent workflow: plan → execute → synthesize.
@@ -594,12 +615,13 @@ class Shadai:
         Args:
             prompt: User's question or task
             tools: List of AgentTool objects
+            session: Session object for context and memory
 
         Yields:
             Text chunks from the synthesized response
 
         Examples:
-            >>> from client.shadai import AgentTool
+            >>> from shadai import AgentTool, Session
             >>>
             >>> # Define tools
             >>> tools = [
@@ -618,12 +640,16 @@ class Shadai:
             ... ]
             >>>
             >>> # Agent handles plan → execute → synthesize
-            >>> async for chunk in shadai.agent(
-            ...     prompt="Find and analyze data",
-            ...     tools=tools
-            ... ):
-            ...     print(chunk, end="")
+            >>> async with Session(name="my-session") as session:
+            ...     async for chunk in shadai.agent(
+            ...         prompt="Find and analyze data",
+            ...         tools=tools,
+            ...         session=session
+            ...     ):
+            ...         print(chunk, end="")
         """
         orchestrator = _AgentOrchestrator(client=self.client)
-        async for chunk in orchestrator(prompt=prompt, tools=tools):
+        async for chunk in orchestrator(
+            prompt=prompt, tools=tools, session_uuid=session.uuid
+        ):
             yield chunk

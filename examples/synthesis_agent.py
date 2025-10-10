@@ -4,12 +4,8 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dotenv import load_dotenv
-
-from shadai import Shadai, tool
+from shadai import Session, Shadai, tool
 from shadai.timing import timed
-
-load_dotenv()
 
 
 @tool
@@ -227,7 +223,7 @@ def get_trend_analysis(topic: str, period: str = "2024") -> str:
 
 @timed
 async def main() -> None:
-    shadai = Shadai(api_key=os.getenv("SHADAI_API_KEY"))
+    shadai = Shadai()
 
     tools = [
         get_market_data,
@@ -243,8 +239,9 @@ async def main() -> None:
     insights for strategy planning.
     """
 
-    async for chunk in shadai.agent(prompt=prompt, tools=tools):
-        print(chunk, end="", flush=True)
+    async with Session(name="test 6") as session:
+        async for chunk in shadai.agent(prompt=prompt, tools=tools, session=session):
+            print(chunk, end="", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,15 +1,11 @@
 import asyncio
-import os
 import sys
+import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dotenv import load_dotenv
-
-from shadai import Shadai, tool
+from shadai import Session, Shadai, tool
 from shadai.timing import timed
-
-load_dotenv()
 
 
 @tool
@@ -92,7 +88,7 @@ def send_email(recipient: str, subject: str, body: str) -> str:
 
 @timed
 async def main() -> None:
-    shadai = Shadai(api_key=os.getenv("SHADAI_API_KEY"))
+    shadai = Shadai()
 
     tools = [search_database, generate_report, send_email]
 
@@ -101,8 +97,9 @@ async def main() -> None:
     team@example.com with subject "Revenue Report"
     """
 
-    async for chunk in shadai.agent(prompt=prompt, tools=tools):
-        print(chunk, end="", flush=True)
+    async with Session(name="test 6") as session:
+        async for chunk in shadai.agent(prompt=prompt, tools=tools, session=session):
+            print(chunk, end="", flush=True)
 
 
 if __name__ == "__main__":

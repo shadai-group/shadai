@@ -50,6 +50,7 @@ from .exceptions import (
     ToolNotFoundError,
 )
 from .models import AgentTool, Tool, ToolDefinition, ToolRegistry, tool
+from .session import Session
 from .tools import (
     EngineTool,
     QueryTool,
@@ -63,6 +64,8 @@ __all__ = [
     "Shadai",
     # Low-level client
     "ShadaiClient",
+    # Session management
+    "Session",
     # Tool classes
     "QueryTool",
     "SummarizeTool",
