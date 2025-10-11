@@ -7,6 +7,11 @@ Beautiful, Pythonic client for interacting with Shadai AI services.
 Quick Start:
     >>> from shadai import Shadai, tool
     >>>
+    >>> # Ingest documents from a folder
+    >>> async with Shadai(name="my-session") as shadai:
+    ...     async for chunk in shadai.ingest(folder_path="/path/to/docs"):
+    ...         print(chunk, end="", flush=True)
+    >>>
     >>> # Query knowledge base with session management
     >>> async with Shadai(name="my-session") as shadai:
     ...     async for chunk in shadai.query(query="What is machine learning?"):
@@ -53,6 +58,7 @@ from .exceptions import (
 from .models import AgentTool, Tool, ToolDefinition, ToolRegistry, tool
 from .tools import (
     EngineTool,
+    IngestTool,
     QueryTool,
     Shadai,
     SummarizeTool,
@@ -69,6 +75,7 @@ __all__ = [
     "SummarizeTool",
     "WebSearchTool",
     "EngineTool",
+    "IngestTool",
     "AgentTool",
     # Tool utilities
     "tool",

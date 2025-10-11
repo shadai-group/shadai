@@ -4,11 +4,15 @@ Shadai Tools - High-Level API Wrappers
 Beautiful, Pythonic interfaces for Shadai AI tools.
 """
 
+import json
+import asyncio
+import base64
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
 
 from .client import ShadaiClient
 from .models import AgentTool
-import os
 
 if TYPE_CHECKING:
     from .session import Session
@@ -244,6 +248,217 @@ class EngineTool:
             },
         ):
             yield chunk
+
+
+class IngestTool:
+    """
+    Folder Ingesting Tool.
+
+    Recursively processes all PDF and image files in a folder, uploading them
+    to a RAG session for knowledge base ingestion. Supports nested folder structures.
+
+    Examples:
+        >>> ingest_tool = IngestTool(client=client, session_uuid="...")
+        >>> results = await ingest_tool("/path/to/documents")
+        >>> print(f"Processed {len(results['successful'])} files")
+    """
+
+    SUPPORTED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".webp"}
+    MAX_FILE_SIZE_MB = 35
+    MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024  # 35 MB in bytes
+
+    def __init__(self, client: ShadaiClient, session_uuid: str) -> None:
+        """
+        Initialize Ingest tool.
+
+        Args:
+            client: Shadai client instance
+            session_uuid: Your session UUID
+        """
+        self.client = client
+        self.session_uuid = session_uuid
+
+    async def __call__(
+        self, folder_path: str, max_concurrent: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Ingest all PDF and image files in a folder (including nested folders).
+
+        Args:
+            folder_path: Path to the folder containing files to process
+            max_concurrent: Maximum number of concurrent file uploads (default: 5)
+
+        Returns:
+            Dictionary with successful uploads, failed uploads, and statistics
+
+        Raises:
+            ValueError: If folder path doesn't exist or is not a directory
+
+        Examples:
+            >>> results = await ingest_tool("/path/to/docs")
+            >>> print(f"Success: {len(results['successful'])}")
+            >>> print(f"Failed: {len(results['failed'])}")
+        """
+        folder = Path(folder_path)
+
+        if not folder.exists():
+            raise ValueError(f"Folder does not exist: {folder_path}")
+
+        if not folder.is_dir():
+            raise ValueError(f"Path is not a directory: {folder_path}")
+
+        files_to_process = self._find_files(folder=folder)
+
+        if not files_to_process:
+            return {
+                "successful": [],
+                "failed": [],
+                "skipped": [],
+                "total_files": 0,
+                "successful_count": 0,
+                "failed_count": 0,
+                "skipped_count": 0,
+            }
+
+        files_to_upload = []
+        skipped_files = []
+
+        for file_path in files_to_process:
+            file_size = file_path.stat().st_size
+            if file_size > self.MAX_FILE_SIZE_BYTES:
+                size_mb = file_size / (1024 * 1024)
+                skipped_files.append(
+                    {
+                        "file_path": str(file_path),
+                        "filename": file_path.name,
+                        "size": file_size,
+                        "size_mb": f"{size_mb:.2f} MB",
+                        "reason": f"""
+                            File size ({size_mb:.2f} MB) exceeds maximum allowed 
+                            size ({self.MAX_FILE_SIZE_MB} MB)
+                        """,
+                    }
+                )
+            else:
+                files_to_upload.append(file_path)
+
+        results = await self._ingest_files(
+            files=files_to_upload, max_concurrent=max_concurrent
+        )
+        results["skipped"] = skipped_files
+        results["skipped_count"] = len(skipped_files)
+        results["total_files"] = len(files_to_process)
+
+        return results
+
+    def _find_files(self, folder: Path) -> List[Path]:
+        """
+        Recursively find all supported files in folder.
+
+        Args:
+            folder: Folder path to search
+
+        Returns:
+            List of file paths with supported extensions
+        """
+        files = []
+        for item in folder.rglob("*"):
+            if item.is_file() and item.suffix.lower() in self.SUPPORTED_EXTENSIONS:
+                files.append(item)
+        return files
+
+    async def _ingest_files(
+        self, files: List[Path], max_concurrent: int
+    ) -> Dict[str, Any]:
+        """
+        Ingest multiple files concurrently with limit.
+
+        Args:
+            files: List of file paths to process
+            max_concurrent: Maximum concurrent uploads
+
+        Returns:
+            Dictionary with processing results
+        """
+        semaphore = asyncio.Semaphore(max_concurrent)
+        tasks = [
+            self._ingest_single_file(file_path=file_path, semaphore=semaphore)
+            for file_path in files
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        successful = []
+        failed = []
+
+        for file_path, result in zip(files, results):
+            if isinstance(result, Exception):
+                failed.append(
+                    {
+                        "file_path": str(file_path),
+                        "filename": file_path.name,
+                        "error": str(result),
+                    }
+                )
+            elif isinstance(result, dict) and "error" not in result:
+                successful.append(
+                    {
+                        "file_path": str(file_path),
+                        "filename": file_path.name,
+                        "uuid": result.get("uuid"),
+                        "size": result.get("size"),
+                        "file_type": result.get("file_type"),
+                    }
+                )
+            else:
+                failed.append(
+                    {
+                        "file_path": str(file_path),
+                        "filename": file_path.name,
+                        "error": result.get("error", "Unknown error"),
+                    }
+                )
+
+        return {
+            "successful": successful,
+            "failed": failed,
+            "total_files": len(files),
+            "successful_count": len(successful),
+            "failed_count": len(failed),
+        }
+
+    async def _ingest_single_file(
+        self, file_path: Path, semaphore: asyncio.Semaphore
+    ) -> Dict[str, Any]:
+        """
+        Ingest a single file: read, encode, and upload.
+
+        Args:
+            file_path: Path to the file
+            semaphore: Semaphore for concurrency control
+
+        Returns:
+            Dictionary with upload result
+
+        Raises:
+            Exception: If file processing fails
+        """
+        async with semaphore:
+            try:
+                file_data = file_path.read_bytes()
+                file_base64 = base64.b64encode(file_data).decode("utf-8")
+                result = await self.client.call_tool(
+                    tool_name="ingest_file",
+                    arguments={
+                        "session_uuid": self.session_uuid,
+                        "file_base64": file_base64,
+                        "filename": file_path.name,
+                    },
+                )
+                return json.loads(result)
+
+            except Exception as e:
+                raise Exception(f"Failed to process {file_path.name}: {str(e)}") from e
 
 
 class _AgentOrchestrator:
@@ -691,3 +906,39 @@ class Shadai:
             prompt=prompt, tools=tools, session_uuid=self._session.uuid
         ):
             yield chunk
+
+    async def ingest(self, folder_path: str) -> Dict[str, Any]:
+        """
+        Ingest all PDF and image files in a folder (including nested folders).
+
+        Recursively finds all supported files and uploads them to the session
+        for RAG knowledge base ingestion. Supports concurrent uploads.
+
+        Args:
+            folder_path: Path to the folder containing files to process
+
+        Returns:
+            Dictionary with processing results:
+            - successful: List of successfully uploaded files
+            - failed: List of files that failed to upload
+            - total_files: Total number of files processed
+            - successful_count: Count of successful uploads
+            - failed_count: Count of failed uploads
+
+        Examples:
+            >>> async with Shadai(name="my-session") as shadai:
+            ...     results = await shadai.ingest(
+            ...         folder_path="/path/to/documents"
+            ...     )
+            ...     print(f"Uploaded {results['successful_count']} files")
+            ...     print(f"Failed {results['failed_count']} files")
+            ...
+            ...     # Show failed files
+            ...     for failed in results['failed']:
+            ...         print(f"Failed: {failed['filename']} - {failed['error']}")
+        """
+        if not self._session:
+            raise ValueError("Shadai must be used as a context manager")
+
+        ingest_tool = IngestTool(client=self.client, session_uuid=self._session.uuid)
+        return await ingest_tool(folder_path=folder_path)
