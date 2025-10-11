@@ -62,9 +62,9 @@ class Session:
             Session instance with populated session data
         """
         if self._name:
-            # Retrieve by name
+            # Get existing session or create if doesn't exist
             result = await self._client.call_tool(
-                tool_name="session_retrieve",
+                tool_name="session_get_or_create",
                 arguments={"name": self._name},
             )
             self._session_data = json.loads(result)

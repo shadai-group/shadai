@@ -25,7 +25,7 @@ async def main() -> None:
 
     input_dir = os.path.join(os.path.dirname(__file__), "data")
 
-    async with Shadai(name="test 6") as shadai:
+    async with Shadai(name="test 7") as shadai:
         # Step 1: Ingest files
         print("STEP 1: Ingesting files")
         print("-" * 70)
@@ -36,6 +36,8 @@ async def main() -> None:
 
         print(f"✓ Ingested {results['successful_count']} files")
         print()
+
+        #TODO: this takes a couple of minutes to process we need to handle it
 
         # Step 2: Query the knowledge base
         print("STEP 2: Querying knowledge base")
