@@ -5,19 +5,22 @@ Low-level client for communicating with Shadai MCP servers.
 """
 
 import json
+import logging
+import os
 from typing import Any, AsyncIterator, Dict, Optional
 
 import aiohttp
-import os
+from dotenv import load_dotenv
 
 from .exceptions import (
     AuthenticationError,
     ConnectionError,
     ServerError,
 )
-from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class ShadaiClient:
@@ -25,7 +28,7 @@ class ShadaiClient:
     Async client for Shadai AI MCP servers.
 
     This is the low-level client that handles JSON-RPC communication
-    and Server-Sent Events (SSE) streaming.
+    and NDJSON streaming with automatic heartbeat handling.
 
     Examples:
         >>> client = ShadaiClient(api_key="your-api-key")
@@ -233,7 +236,9 @@ class ShadaiClient:
         arguments: Dict[str, Any],
     ) -> AsyncIterator[str]:
         """
-        Call a tool and stream response chunks.
+        Call a tool and stream response chunks (NDJSON format).
+
+        Automatically filters out heartbeat messages.
 
         Args:
             tool_name: Name of the tool to call
@@ -259,8 +264,10 @@ class ShadaiClient:
             "id": 1,
         }
 
+        timeout = aiohttp.ClientTimeout(total=None, sock_read=30)
+
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     url=self.stream_url,
                     json=request,
@@ -273,12 +280,16 @@ class ShadaiClient:
                     async for line in response.content:
                         line_str = line.decode("utf-8").strip()
 
-                        if not line_str or not line_str.startswith("data:"):
+                        if not line_str:
                             continue
 
-                        data_str = line_str.split(":", 1)[1].strip()
                         try:
-                            data = json.loads(data_str)
+                            data = json.loads(line_str)
+
+                            if data.get("method") == "notifications/heartbeat":
+                                timestamp = data.get("params", {}).get("timestamp")
+                                logger.debug(f"Heartbeat received: {timestamp}")
+                                continue
 
                             if data.get("method") == "notifications/progress":
                                 chunk = data.get("params", {}).get("progress", "")
@@ -286,6 +297,7 @@ class ShadaiClient:
                                     yield chunk
 
                         except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse NDJSON line: {line_str}")
                             continue
 
         except aiohttp.ClientError as e:

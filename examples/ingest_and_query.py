@@ -37,7 +37,7 @@ async def main() -> None:
         print(f"✓ Ingested {results['successful_count']} files")
         print()
 
-        #TODO: this takes a couple of minutes to process we need to handle it
+        # TODO: this takes a couple of minutes to process we need to handle it
 
         # Step 2: Query the knowledge base
         print("STEP 2: Querying knowledge base")
