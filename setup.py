@@ -8,6 +8,7 @@ setup(
         "aiohttp>=3.8.0",
         "pydantic>=2.0.0",
         "langchain-core==1.0.0a8",
+        "streamlit>=1.28.0",
     ],
     author="SHADAI GROUP",
     author_email="noreply@shadai.ai",
