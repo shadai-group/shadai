@@ -24,7 +24,7 @@ async def main() -> None:
     print("-" * 70)
     print()
 
-    async with Shadai(name="test 6") as shadai:
+    async with Shadai(name="test") as shadai:
         async for chunk in shadai.summarize():
             print(chunk, end="", flush=True)
 

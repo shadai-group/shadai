@@ -339,7 +339,7 @@ async def simple_agent_example() -> None:
     team@example.com with subject "Revenue Report"
     """
 
-    async with Shadai(name="test 6") as shadai:
+    async with Shadai(name="test") as shadai:
         async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
 
@@ -368,7 +368,7 @@ async def market_analysis_example() -> None:
     insights for strategy planning.
     """
 
-    async with Shadai(name="test 6") as shadai:
+    async with Shadai(name="test") as shadai:
         async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
 

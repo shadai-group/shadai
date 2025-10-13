@@ -27,7 +27,7 @@ async def main() -> None:
     print("-" * 70)
     print()
 
-    async with Shadai(name="test 6") as shadai:
+    async with Shadai(name="test") as shadai:
         async for chunk in shadai.web_search(prompt=prompt, use_web_search=True):
             print(chunk, end="", flush=True)
 

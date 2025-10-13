@@ -48,7 +48,7 @@ async def main() -> None:
     print("-" * 70)
     print()
 
-    async with Shadai(name="test 6") as shadai:
+    async with Shadai(name="test") as shadai:
         async for chunk in shadai.engine(
             prompt=prompt,
             use_knowledge_base=True,  # Query specific content from documents
