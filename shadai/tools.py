@@ -266,6 +266,8 @@ class IngestTool:
     SUPPORTED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".webp"}
     MAX_FILE_SIZE_MB = 35
     MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024  # 35 MB in bytes
+    MAX_BATCH_SIZE_MB = 110
+    MAX_BATCH_SIZE_BYTES = MAX_BATCH_SIZE_MB * 1024 * 1024  # 110 MB in bytes
 
     def __init__(self, client: ShadaiClient, session_uuid: str) -> None:
         """
@@ -367,23 +369,63 @@ class IngestTool:
                 files.append(item)
         return files
 
+    def _create_batches(self, files: List[Path]) -> List[List[Path]]:
+        """
+        Batch files into groups with maximum total size of MAX_BATCH_SIZE_BYTES.
+
+        Args:
+            files: List of file paths to batch
+
+        Returns:
+            List of batches, where each batch is a list of file paths
+        """
+        batches: List[List[Path]] = []
+        current_batch: List[Path] = []
+        current_batch_size = 0
+
+        for file_path in files:
+            file_size = file_path.stat().st_size
+
+            # If adding this file would exceed the batch limit, start a new batch
+            if (
+                current_batch
+                and (current_batch_size + file_size) > self.MAX_BATCH_SIZE_BYTES
+            ):
+                batches.append(current_batch)
+                current_batch = [file_path]
+                current_batch_size = file_size
+            else:
+                current_batch.append(file_path)
+                current_batch_size += file_size
+
+        # Add the last batch if not empty
+        if current_batch:
+            batches.append(current_batch)
+
+        return batches
+
     async def _ingest_files(
         self, files: List[Path], max_concurrent: int
     ) -> Dict[str, Any]:
         """
-        Ingest multiple files concurrently with limit.
+        Ingest multiple files concurrently with batching by size.
+
+        Groups files into batches of up to MAX_BATCH_SIZE_MB (110MB) each,
+        then processes each batch as a single API call.
 
         Args:
             files: List of file paths to process
-            max_concurrent: Maximum concurrent uploads
+            max_concurrent: Maximum concurrent batch uploads
 
         Returns:
             Dictionary with processing results
         """
+        # Create batches of files (max 110MB per batch)
+        batches = self._create_batches(files=files)
+
         semaphore = asyncio.Semaphore(max_concurrent)
         tasks = [
-            self._ingest_single_file(file_path=file_path, semaphore=semaphore)
-            for file_path in files
+            self._ingest_batch(batch=batch, semaphore=semaphore) for batch in batches
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -391,33 +433,22 @@ class IngestTool:
         successful = []
         failed = []
 
-        for file_path, result in zip(files, results):
+        # Flatten results from all batches
+        for batch, result in zip(batches, results):
             if isinstance(result, Exception):
-                failed.append(
-                    {
-                        "file_path": str(file_path),
-                        "filename": file_path.name,
-                        "error": str(result),
-                    }
-                )
-            elif isinstance(result, dict) and "error" not in result:
-                successful.append(
-                    {
-                        "file_path": str(file_path),
-                        "filename": file_path.name,
-                        "uuid": result.get("uuid"),
-                        "size": result.get("size"),
-                        "file_type": result.get("file_type"),
-                    }
-                )
-            else:
-                failed.append(
-                    {
-                        "file_path": str(file_path),
-                        "filename": file_path.name,
-                        "error": result.get("error", "Unknown error"),
-                    }
-                )
+                # All files in the batch failed
+                for file_path in batch:
+                    failed.append(
+                        {
+                            "file_path": str(file_path),
+                            "filename": file_path.name,
+                            "error": str(result),
+                        }
+                    )
+            elif isinstance(result, dict):
+                # Extract successful and failed files from batch result
+                successful.extend(result.get("successful", []))
+                failed.extend(result.get("failed", []))
 
         return {
             "successful": successful,
@@ -427,38 +458,61 @@ class IngestTool:
             "failed_count": len(failed),
         }
 
-    async def _ingest_single_file(
-        self, file_path: Path, semaphore: asyncio.Semaphore
+    async def _ingest_batch(
+        self, batch: List[Path], semaphore: asyncio.Semaphore
     ) -> Dict[str, Any]:
         """
-        Ingest a single file: read, encode, and upload.
+        Ingest a batch of files: read, encode, and upload as a single API call.
 
         Args:
-            file_path: Path to the file
+            batch: List of file paths to process in this batch
             semaphore: Semaphore for concurrency control
 
         Returns:
-            Dictionary with upload result
+            Dictionary with upload results including successful and failed files
 
         Raises:
-            Exception: If file processing fails
+            Exception: If batch processing fails
         """
         async with semaphore:
             try:
-                file_data = file_path.read_bytes()
-                file_base64 = base64.b64encode(file_data).decode("utf-8")
+                # Prepare all files in the batch
+                files_data = []
+                for file_path in batch:
+                    try:
+                        file_data = file_path.read_bytes()
+                        file_base64 = base64.b64encode(file_data).decode("utf-8")
+                        files_data.append(
+                            {
+                                "file_base64": file_base64,
+                                "filename": file_path.name,
+                                "file_path": str(file_path),
+                            }
+                        )
+                    except Exception as e:
+                        # If a file fails to read, add it to failed list but continue with others
+                        files_data.append(
+                            {
+                                "file_path": str(file_path),
+                                "filename": file_path.name,
+                                "error": f"Failed to read file: {str(e)}",
+                            }
+                        )
+
+                # Call the batch ingest tool
                 result = await self.client.call_tool(
-                    tool_name="ingest_file",
+                    tool_name="ingest_files_batch",
                     arguments={
                         "session_uuid": self.session_uuid,
-                        "file_base64": file_base64,
-                        "filename": file_path.name,
+                        "files": files_data,
                     },
                 )
                 return json.loads(result)
 
             except Exception as e:
-                raise Exception(f"Failed to process {file_path.name}: {str(e)}") from e
+                raise Exception(
+                    f"Failed to process batch of {len(batch)} files: {str(e)}"
+                ) from e
 
 
 class _AgentOrchestrator:
@@ -630,7 +684,7 @@ class Shadai:
         name: Optional[str] = None,
         temporal: bool = False,
         api_key: Optional[str] = None,
-        base_url: str = "http://localhost",
+        base_url: str = "https://apiv2.shadai.ai",
         timeout: int = 30,
     ) -> None:
         """

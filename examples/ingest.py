@@ -30,7 +30,7 @@ async def main() -> None:
     print("-" * 70)
     print()
 
-    async with Shadai(name="test 6") as shadai:
+    async with Shadai(name="test") as shadai:
         results = await shadai.ingest(folder_path=input_dir)
 
         print()
@@ -47,7 +47,7 @@ async def main() -> None:
             print("Successfully ingested files:")
             for file_info in results["successful"]:
                 size_mb = int(file_info["size"]) / (1024 * 1024)
-                print(f"  • {file_info['filename']} ({size_mb:.2f} MB)")
+                print(f"  • {file_info['name']} ({size_mb:.2f} MB)")
 
         if results["failed"]:
             print("\nFailed files:")

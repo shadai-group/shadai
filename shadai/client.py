@@ -39,7 +39,7 @@ class ShadaiClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "http://localhost",
+        base_url: str = "https://apiv2.shadai.ai",
         timeout: int = 30,
     ) -> None:
         """
