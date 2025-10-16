@@ -1,769 +1,415 @@
-# SHADAI Intelligence Client
+# Shadai Client - Official Python SDK
 
-A Python client for interacting with the SHADAI API. This client provides a simple interface for document processing, querying, and session management.
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Installation
+**Beautiful, Pythonic client for Shadai AI services.** Query your knowledge base, orchestrate custom tools with intelligent agents, and more with an intuitive, production-ready API.
+
+## 🆕 What's New in v0.1.29
+
+- **🧠 Memory enabled by default** - All tools now use conversation memory by default for better context continuity
+- **💬 Chat history management** - New methods to retrieve and clear session history with pagination
+- **📖 Enhanced documentation** - Updated examples and API reference with new features
+
+## ✨ Features
+
+- 🚀 **Easy to use** - Clean, intuitive API design with one-step async patterns
+- ⚡ **Async streaming** - Real-time streaming responses for all tools
+- 🛠️ **Multiple tools** - Query, summarize, search, engine, and intelligent agent
+- 🤖 **Intelligent agent** - Automatic plan → execute → synthesize workflow
+- 🧠 **Conversation memory** - Built-in memory enabled by default for context continuity
+- 💬 **Chat history management** - Get and clear session history with pagination
+- 🔒 **Type-safe** - Full type hints and Pydantic models for better IDE support
+- 📦 **Minimal dependencies** - Only requires `aiohttp` and `pydantic`
+- 🎯 **Production-ready** - Comprehensive error handling
+
+## 📦 Installation
 
 ```bash
-pip install shadai
+pip install shadai-client
 ```
 
-## Requirements
+Or install from source:
 
-- Python >= 3.9
-- Environment Variables:
-  - `SHADAI_API_KEY`: Your SHADAI API key
+```bash
+cd client
+pip install -e .
+```
 
-## Features
-
-- Asynchronous API interactions
-- Automatic session management
-- File ingestion with progress tracking
-- Interactive query interface
-- Robust error handling and retries
-- Rich console output
-
-## Getting Started with SHADAI
-
-SHADAI Intelligence Client is a powerful tool for document processing, querying, and AI-assisted analysis. This guide will walk you through various use cases and show you how to leverage the full capabilities of the platform.
-
-### Session Configuration
-
-When working with SHADAI, you'll always start by creating a Session. Here are the configuration options available:
-
-| Parameter | Type | Description | Default |
-|-----------|------|-------------|---------|
-| type | str | Processing type ("light", "standard", "deep") | "standard" |
-| llm_model | str | Language model to use | AIModels.GEMINI_2_0_FLASH |
-| llm_temperature | float | Model temperature | 0.7 |
-| llm_max_tokens | int | Maximum tokens for response | 4096 |
-| query_mode | str | Query processing mode | hybrid |
-| language | str | Response language | es |
-| delete | bool | Auto-delete session on exit | True |
-
-## Working with Documents
-
-### Ingesting Documents
-
-The first step in most SHADAI workflows is ingesting documents. SHADAI can process various document formats and extract relevant information.
+## 🚀 Quick Start
 
 ```python
-# examples/ingest_data.py
 import asyncio
-import os
-import sys
-
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-
-async def ingest_with_alias(alias: str) -> None:
-    """
-    This function ingests a directory of documents into a session with a given alias.
-    """
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, alias=alias, type="standard", delete=True
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-
-
-async def ingest_without_alias() -> None:
-    """
-    This function ingests a directory of documents into a session without a given alias.
-    """
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=False
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-
+from shadai import Shadai
 
 async def main():
-    await ingest_with_alias(alias="my_alias")
-    await ingest_without_alias()
+    # Create session and query
+    async with Shadai(name="my-session") as shadai:
+        # Ingest documents
+        await shadai.ingest(folder_path="./documents")
 
+        # Query knowledge base
+        async for chunk in shadai.query("What is machine learning?"):
+            print(chunk, end="", flush=True)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-### Managing Sessions
+## 📚 Usage Examples
 
-SHADAI provides tools for managing your sessions, including creating, listing, retrieving, and deleting them.
+### Knowledge Base Query
+
+Query your uploaded documents using RAG (Retrieval-Augmented Generation):
 
 ```python
-# examples/handle_sessions.py
-import asyncio
-import os
-import sys
-from typing import List, Optional
+async with Shadai(name="research") as shadai:
+    # Ingest documents
+    await shadai.ingest(folder_path="./documents")
 
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Ask questions about your documents
+    async for chunk in shadai.query("What are the key findings?"):
+        print(chunk, end="", flush=True)
 
+    # Memory is enabled by default for context continuity
+    async for chunk in shadai.query("Tell me more about that"):
+        print(chunk, end="", flush=True)
 
-from shadai.core.enums import AIModels, QueryMode
-from shadai.core.manager import Manager
-from shadai.core.schemas import SessionResponse
-from shadai.core.session import Session
-
-
-async def create_session(alias: Optional[str] = None) -> Session:
-    """
-    This function creates a new session with specific parameters.
-    You can customize model, temperature, tokens, and query mode.
-    If you set delete to False, you need to manually delete the session.
-
-    Returns:
-        Session: The session object.
-    """
-    async with Session(
-        alias=alias,
-        type="standard",
-        llm_model=AIModels.GEMINI_2_0_FLASH,
-        llm_temperature=0.7,
-        llm_max_tokens=4096,
-        query_mode=QueryMode.HYBRID,
-        delete=False,
-    ) as session:
-        return session
-
-
-async def get_existing_session_with_session_id(session_id: str) -> Session:
-    """
-    This function gets a session by its ID.
-
-    Args:
-        session_id (str): The ID of the session to get.
-
-    Returns:
-        Session: The session object.
-    """
-    async with Session(session_id=session_id, type="standard", delete=False) as session:
-        return session
-
-
-async def get_existing_session_with_alias(alias: str) -> Session:
-    """
-    This function gets a session by its alias.
-
-    Args:
-        session_id (str): The ID of the session to get.
-
-    Returns:
-        Session: The session object.
-    """
-    async with Session(alias=alias, type="standard", delete=False) as session:
-        return session
-
-
-async def list_sessions() -> List[SessionResponse]:
-    """
-    This function lists all the sessions in the current namespace.
-    Returns:
-        List[SessionResponse]: A list of session responses.
-    """
-    async with Manager() as manager:
-        sessions = await manager.list_sessions(show_in_console=True)
-        return sessions
-
-
-async def cleanup_namespace() -> None:
-    """
-    This function cleans up the namespace of the current session.
-    """
-    async with Manager() as manager:
-        await manager.cleanup_namespace()
-
-
-async def delete_session(
-    session_id: Optional[str] = None, alias: Optional[str] = None
-) -> None:
-    """
-    This function deletes a session by its ID.
-
-    Args:
-        session_id (str): The ID of the session to delete.
-    """
-    async with Manager() as manager:
-        await manager.delete_session(session_id=session_id, alias=alias)
-
-
-async def main():
-    session_created = await create_session(alias="test-session")
-    session_id = session_created.id
-    session_retrieved = await get_existing_session_with_session_id(
-        session_id=session_id
-    )
-    await delete_session(session_id=session_retrieved.id)
-    await list_sessions()
-    await cleanup_namespace()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Disable memory if needed
+    async for chunk in shadai.query("Independent question", use_memory=False):
+        print(chunk, end="", flush=True)
 ```
 
-## Querying and Analysis
+### Document Summarization
 
-### Making a Single Query
-
-The most basic way to interact with your documents is through a single query:
+Generate comprehensive summaries of all documents in a session:
 
 ```python
-# examples/make_single_query.py
-import asyncio
-import os
-import sys
+async with Shadai(name="research") as shadai:
+    await shadai.ingest(folder_path="./documents")
 
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-
-async def main():
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH,
-        type="standard",
-        delete=False,
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        await session.query(
-            query="¿De qué habla la quinta enmienda de la constitución?",
-            # You decide whether you want to add a role or not. This affects the response.
-            role="Eres un abogado experto de harvard",
-            display_in_console=True,
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    async for chunk in shadai.summarize():
+        print(chunk, end="", flush=True)
 ```
 
-### Making Multiple Queries
+### Web Search
 
-For more complex analysis, you might want to ask multiple related questions:
+Search the internet for current information:
 
 ```python
-# examples/make_multiple_queries.py
-import asyncio
-import os
-import sys
-from typing import List
-
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.enums import AIModels
-from shadai.core.schemas import Query
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-queries: List[Query] = [
-    Query(
-        query="¿De qué habla la quinta enmienda de la constitución?",
-        role="Eres un abogado experto de harvard",
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        ¿Cómo se detalla en el Artículo I, Sección 2 el mecanismo de asignación de representantes a
-        los estados, y qué implicaciones podría tener la fórmula de prorrateo
-        (incluyendo consideraciones como "las tres quintas partes" y la exclusión de indígenas)
-        en términos de representación política y distribución de poder?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        El Artículo I, Sección 3 describe la organización y elección de senadores, incluyendo
-        la división en tres clases. ¿Qué ventajas y desventajas podría presentar este sistema
-        de renovación escalonada para la estabilidad y la continuidad de la representación estatal?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        Basándote en el Artículo I, Sección 7, analiza el proceso legislativo que incluye la
-        intervención del Presidente. ¿Cómo se equilibra el poder entre el Ejecutivo y
-        el Congreso cuando se trata de la aprobación de leyes, y cuáles son las implicaciones
-        del proceso de veto con objeciones detalladas?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        En el Artículo III se define el poder y la jurisdicción de la Corte Suprema.
-        ¿Cuáles son las implicaciones de otorgar a la Corte Suprema jurisdicción
-        original en casos que involucran a embajadores y estados, y cómo afecta esto
-        el equilibrio entre poderes?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        Con base en el Artículo II, analiza los límites impuestos al Presidente,
-        especialmente en lo referente a la designación de funcionarios y la duración
-        del mandato, y discute cómo estos límites buscan prevenir abusos de poder.
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        Considerando las Enmiendas I al X (la Carta de Derechos), ¿cómo se aseguran y
-        se limitan los poderes gubernamentales en relación con las libertades individuales,
-        y qué desafíos se podrían plantear en la aplicación práctica de estos derechos?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        El Artículo V establece un mecanismo para modificar la Constitución.
-        ¿Qué dificultades prácticas y políticas podrían derivarse de la necesidad de ratificar
-        en tres cuartas partes de los estados, y cómo podría esto afectar la adaptabilidad de la
-        Constitución a cambios sociales?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        Analiza el Artículo IV en el contexto del principio de "plena fe y crédito".
-        ¿Cómo se garantiza la uniformidad en el reconocimiento de leyes y registros judiciales
-        entre estados, y qué problemas podría surgir en casos de discrepancias legales
-        entre jurisdicciones?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        En la Sección 10 del Artículo I se imponen restricciones a los estados en términos de política
-        exterior, emisión de moneda y tratados con naciones extranjeras.
-        ¿Cómo se justifica constitucionalmente esta limitación y qué conflictos podría
-        generar en la relación entre el gobierno federal y los estados?
-        """,
-        display_in_console=True,
-    ),
-    Query(
-        query="""
-        Las Enmiendas del XIII al XXVII introducen cambios significativos en temas como la
-        abolición de la esclavitud, el sufragio, y la limitación de mandatos presidenciales.
-        ¿Cómo refleja esta evolución los cambios sociales y políticos en la historia de los Estados Unidos,
-        y de qué manera impactan en la interpretación y aplicación de la Constitución original?
-        """,
-        display_in_console=True,
-    ),
-]
-
-
-async def main():
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        await session.multiple_queries(queries=queries)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+async with Shadai(name="news") as shadai:
+    async for chunk in shadai.web_search("Latest AI developments 2024"):
+        print(chunk, end="", flush=True)
 ```
 
-### Getting a Session Summary
+### Chat History Management
 
-SHADAI can generate concise summaries of the documents in your session:
-
-```python
-# examples/get_session_summary.py
-import asyncio
-import os
-import sys
-
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-
-async def main():
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH,
-        type="standard",
-        language="es",
-        delete=False,
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        await session.summarize(display_in_console=True)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-### Creating an Article
-
-SHADAI can generate comprehensive articles on topics related to the documents in your session:
+Retrieve and manage conversation history for sessions:
 
 ```python
-# examples/create_article.py
-import asyncio
-import os
-import sys
-
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-
-async def create_article():
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        await session.article(
-            topic="Análisis de las enmiendas de la constitución y su impacto social",
-            display_in_console=True,
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(create_article())
-```
-
-## Advanced Interactions
-
-### Simple LLM Completion
-
-Sometimes you just need a direct answer from the language model:
-
-```python
-# examples/llm_call.py
-import asyncio
-import os
-import sys
-
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-media_dir = os.path.join(os.path.dirname(__file__), "media")
-
-
-async def call_llm_with_media():
-    """
-    This function calls the LLM with the media.
-    """
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH,
-        type="standard",
-        delete=True,
-    ) as session:
-        await session.llm_call(
-            prompt="""
-            Dame toda la información que puedas obtener de estos archivos multimedia
-            en detalle y por separado para cada tipo de archivo.
-            """,
-            media_path=media_dir,
-            display_prompt=True,
-            display_in_console=True,
-        )
-
-
-async def call_llm_without_media():
-    """
-    This function calls the LLM without media.
-    """
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
-    ) as session:
-        await session.llm_call(
-            prompt="¿Cual es el estado con la mayor economía en los Estados Unidos?",
-            display_prompt=True,
-            display_in_console=True,
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(call_llm_with_media())
-    asyncio.run(call_llm_without_media())
-```
-
-### Chat with Data and History
-
-For interactive conversations that maintain context:
-
-```python
-# examples/chat_with_data_and_history.py
-import asyncio
-import os
-import sys
-
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-
-async def chat_with_data():
-    """
-    This function chats with the data and history.
-    """
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        await session.chat(
-            message="¿Qué dice la constitución sobre la libertad de expresión?",
-            system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
-            display_in_console=True,
-        )
-        # This is optional to run, it cleans up the chat history
-        await session.cleanup_chat()
-
-
-async def chat_without_data():
-    """
-    This function chats only with the history.
-    """
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", delete=True
-    ) as session:
-        await session.chat(
-            message="¿Qué dice la constitución sobre la libertad de expresión?",
-            system_prompt="Eres un experto en derecho constitucional y tienes acceso a la constitución.",
-            display_in_console=True,
-        )
-        # This is optional to run, it cleans up the chat history
-        await session.cleanup_chat()
-
-
-if __name__ == "__main__":
-    asyncio.run(chat_with_data())
-    asyncio.run(chat_without_data())
-```
-
-### Creating a Smart Agent
-
-For more complex AI-powered workflows, you can create a Smart Agent that can use custom functions as tools:
-
-```python
-# examples/create_smart_agent.py
-import asyncio
-import os
-import sys
-
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.agents import Agent
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-
-def add(a: float, b: float) -> float:
-    """Suma dos números.
-
-    Args:
-        a (float): El primer número
-        b (float): El segundo número
-
-    Returns:
-        float: La suma de los dos números
-    """
-    return a + b
-
-
-def multiply(a: float, b: float) -> float:
-    """Multiplica dos números.
-
-    Args:
-        a (float): El primer número
-        b (float): El segundo número
-
-    Returns:
-        float: El producto de los dos números
-    """
-    return a * b
-
-
-def web_search(query: str) -> str:
-    """Busca información en la web (dummy implementation).
-
-    Args:
-        query (str): La consulta para buscar en la web
-
-    Returns:
-        str: El resultado de la búsqueda web
-    """
-    return (
-        "Aquí están los recuentos de empleados para cada una de las empresas FAANG en 2024:\n"
-        "1. **Facebook (Meta)**: 67,317 empleados.\n"
-        "2. **Apple**: 164,000 empleados.\n"
-        "3. **Amazon**: 1,551,000 empleados.\n"
-        "4. **Netflix**: 14,000 empleados.\n"
-        "5. **Google (Alphabet)**: 181,269 empleados."
+async with Shadai(name="chat") as shadai:
+    # Get chat history with pagination
+    history = await shadai.get_session_history(
+        page=1,
+        page_size=5  # Default: 5, Max: 10
     )
 
+    print(f"Total messages: {history['count']}")
+    for message in history["results"]:
+        print(f"{message['role']}: {message['content']}")
 
-async def call_calculator_agent():
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH,
-        type="standard",
-        delete=True,
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        agent = Agent(
-            name="Calculadora",
-            description="Una calculadora simple que puede sumar y multiplicar dos números",
-            agent_prompt="""
-            Eres una calculadora simple que puede sumar y multiplicar dos números.
-            Realiza los cálculos utilizando herramientas y devuelve el resultado de manera amigable.
-            """,
-            session=session,
-            use_history=True,
-        )
-        await agent.add_tools(tools=[add, multiply])
-
-        # Uso de ambas herramientas
-        await agent.run(input="¿Puedes calcular 2 + 2 * (2 + 2)?")
-
-
-async def call_web_search_agent():
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH,
-        type="standard",
-        delete=True,
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        agent = Agent(
-            name="experto_investigador",
-            description="Un agente que puede buscar información en la web y resolver problemas matemáticos sencillos.",
-            agent_prompt="""
-            Eres un investigador experto con acceso a búsqueda web y una calculadora simple.
-            """,
-            session=session,
-            use_history=True,
-        )
-        await agent.add_tools(tools=[add, multiply, web_search])
-
-        await agent.run(
-            # Esto debería activar las herramientas de suma y multiplicación
-            input="¿Puedes calcular 6 * (2 + 2 * 8)?"  # Resultado esperado: 108
-        )
-
-        await agent.run(
-            # Esto debería activar la herramienta de búsqueda web
-            input="¿Cuál es el número total de empleados de las empresas FAANG en 2024?"
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(call_calculator_agent())
-    asyncio.run(call_web_search_agent())
+    # Clear all chat history
+    result = await shadai.clear_session_history()
+    print(result["message"])  # "Session history cleared successfully"
 ```
 
-### Creating a Naive Agent
+### Unified Engine
 
-For specialized analytical workflows that need contextual knowledge, you can create a Naive Agent that uses a custom function to provide information:
+Orchestrate multiple tools for comprehensive answers:
 
 ```python
-# examples/create_naive_agent.py
-import asyncio
-import os
-import sys
-from typing import Dict
+async with Shadai(name="analysis") as shadai:
+    await shadai.ingest(folder_path="./documents")
 
-# Add the parent directory to sys.path to access the shadai package
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from shadai.core.agents import ToolAgent
-from shadai.core.enums import AIModels
-from shadai.core.session import Session
-
-input_dir = os.path.join(os.path.dirname(__file__), "data")
-
-
-def get_constitutional_article(article_id: str) -> str:
-    articles: Dict[str, Dict[str, str]] = {
-        "1": {
-            "title": "Primera Enmienda",
-            "description": "Libertad de expresión, religión, prensa y reunión",
-            "content": "El Congreso no hará ley alguna con respecto al establecimiento de religión, ni prohibiendo la libre práctica de la misma; ni limitando la libertad de expresión, ni de prensa; ni el derecho del pueblo a reunirse pacíficamente.",
-        },
-        "2": {
-            "title": "Segunda Enmienda",
-            "description": "Derecho a portar armas",
-            "content": "Siendo necesaria una milicia bien ordenada para la seguridad de un Estado libre, no se violará el derecho del pueblo a poseer y portar armas.",
-        },
-    }
-
-    if article_id not in articles:
-        return "Artículo no encontrado"
-
-    article = articles[article_id]
-    return f"Título: {article['title']}\nDescripción: {article['description']}\nContenido: {article['content']}"
-
-
-async def main():
-    async with Session(
-        llm_model=AIModels.GEMINI_2_0_FLASH, type="standard", language="es", delete=True
-    ) as session:
-        await session.ingest(input_dir=input_dir)
-        agent = ToolAgent(
-            session=session,
-            prompt="""
-                Analiza la relación entre la Primera Enmienda y las empresas digitales:
-
-                Enmienda Constitucional:
-                {function_output}
-
-                Contexto de documentos:
-                {summary}
-
-                Considerando la Primera Enmienda y el contexto histórico, analiza:
-                1. Cómo se aplican los principios de libertad de expresión en el entorno digital
-                2. Desafíos y oportunidades para las empresas digitales en relación con estos derechos
-                3. Recomendaciones para equilibrar la innovación tecnológica con los derechos constitucionales
-            """,
-            use_summary=True,
-            function=get_constitutional_article,
-        )
-        await agent.call(article_id="1")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    async for chunk in shadai.engine(
+        prompt="Compare my docs with current trends",
+        use_knowledge_base=True,
+        use_web_search=True
+    ):
+        print(chunk, end="", flush=True)
 ```
 
-## Error Handling
+### Intelligent Agent
 
-The SHADAI client includes comprehensive error handling for:
-- Configuration errors
-- API communication issues
-- File processing problems
-- Session management failures
+Orchestrate plan → execute → synthesize workflow with custom tools.
+**The planner automatically infers tool arguments from your prompt!**
 
-## Author
+```python
+from shadai import Shadai, tool
 
-SHADAI GROUP <jaisir@shadai.ai>
+# Define tools using @tool decorator
+@tool
+def search_database(query: str, limit: int = 10) -> str:
+    """Search database for user information.
+
+    Args:
+        query: Search query string
+        limit: Maximum number of results
+    """
+    # Your implementation
+    return "Search results..."
+
+@tool
+def generate_report(data: str, format: str = "text") -> str:
+    """Generate a formatted report.
+
+    Args:
+        data: Data to include in report
+        format: Report format (text, pdf, etc.)
+    """
+    # Your implementation
+    return "Generated report..."
+
+# Agent automatically infers arguments from your prompt!
+async with Shadai(name="agent") as shadai:
+    async for chunk in shadai.agent(
+        prompt="Find the top 5 users and create a PDF report",
+        tools=[search_database, generate_report]
+    ):
+        print(chunk, end="", flush=True)
+```
+
+The agent automatically:
+1. **Plans** which tools to use based on your prompt
+2. **Infers** the appropriate arguments for each tool from your prompt
+3. **Executes** the selected tools locally with inferred arguments
+4. **Synthesizes** all outputs into a unified, coherent answer
+
+## 🔧 Configuration
+
+### Environment Variables
+
+```bash
+export SHADAI_API_KEY="your-api-key"
+export SHADAI_BASE_URL="http://localhost"  # Optional
+```
+
+### Client Initialization
+
+```python
+# Named session (persistent)
+async with Shadai(name="my-project") as shadai:
+    await shadai.ingest(folder_path="./docs")
+
+# Temporal session (auto-deleted)
+async with Shadai(temporal=True) as shadai:
+    async for chunk in shadai.query("Quick question"):
+        print(chunk, end="")
+
+# Custom configuration
+async with Shadai(
+    name="custom",
+    api_key="your-api-key",
+    base_url="https://api.shadai.com",
+    timeout=60  # seconds
+) as shadai:
+    pass
+```
+
+## 🛠️ Available Tools
+
+| Tool | Description | Streaming |
+|------|-------------|-----------|
+| `query()` | Query knowledge base with RAG | ✅ |
+| `summarize()` | Summarize all session documents | ✅ |
+| `web_search()` | Search web for current information | ✅ |
+| `engine()` | Unified multi-tool orchestration | ✅ |
+| `agent()` | Intelligent agent (plan → execute → synthesize) | ✅ |
+| `get_session_history()` | Retrieve chat history with pagination | ❌ |
+| `clear_session_history()` | Clear all messages in a session | ❌ |
+
+## 📖 API Reference
+
+### Shadai
+
+Main entry point for the client.
+
+```python
+Shadai(
+    name: str = None,
+    temporal: bool = False,
+    api_key: str = None,
+    base_url: str = "http://localhost",
+    timeout: int = 30
+)
+```
+
+**Methods:**
+- `ingest(folder_path)` → `Dict` - Ingest documents from folder
+- `query(query, use_memory=True)` → `AsyncIterator[str]` - Query knowledge base
+- `summarize(use_memory=True)` → `AsyncIterator[str]` - Summarize documents
+- `web_search(prompt, use_web_search=True, use_memory=True)` → `AsyncIterator[str]` - Search web
+- `engine(prompt, **options)` → `AsyncIterator[str]` - Unified engine
+- `agent(prompt, tools)` → `AsyncIterator[str]` - Intelligent agent
+- `get_session_history(page=1, page_size=5)` → `Dict[str, Any]` - Get chat history
+- `clear_session_history()` → `Dict[str, str]` - Clear chat history
+
+### query()
+
+Query your knowledge base with streaming responses. Memory enabled by default.
+
+```python
+async with Shadai(name="docs") as shadai:
+    async for chunk in shadai.query("What is AI?", use_memory=True):
+        print(chunk, end="")
+```
+
+### summarize()
+
+Summarize all documents in a session. Memory enabled by default.
+
+```python
+async with Shadai(name="docs") as shadai:
+    async for chunk in shadai.summarize(use_memory=True):
+        print(chunk, end="")
+```
+
+### web_search()
+
+Search the web for current information. Memory enabled by default.
+
+```python
+async with Shadai(name="search") as shadai:
+    async for chunk in shadai.web_search("Latest AI news"):
+        print(chunk, end="")
+```
+
+### engine()
+
+Unified engine with multiple tool capabilities. Memory enabled by default.
+
+```python
+async with Shadai(name="engine") as shadai:
+    async for chunk in shadai.engine(
+        prompt="Analyze my documents",
+        use_knowledge_base=True,
+        use_web_search=True
+    ):
+        print(chunk, end="")
+```
+
+### get_session_history()
+
+Retrieve chat history with pagination support.
+
+```python
+async with Shadai(name="chat") as shadai:
+    history = await shadai.get_session_history(page=1, page_size=5)
+
+    # Response includes: count, next, previous, results
+    for msg in history["results"]:
+        print(f"{msg['role']}: {msg['content']}")
+```
+
+### clear_session_history()
+
+Clear all messages in a session.
+
+```python
+async with Shadai(name="chat") as shadai:
+    result = await shadai.clear_session_history()
+    # Returns: {"message": "Session history cleared successfully"}
+```
+
+### agent()
+
+Intelligent agent that orchestrates custom tools.
+
+```python
+from shadai import tool
+
+@tool
+def my_tool(param: str) -> str:
+    """Tool description."""
+    return "result"
+
+async with Shadai(name="agent") as shadai:
+    async for chunk in shadai.agent(
+        prompt="Execute task",
+        tools=[my_tool]
+    ):
+        print(chunk, end="")
+```
+
+## 🚨 Error Handling
+
+```python
+from shadai import (
+    Shadai,
+    AuthenticationError,
+    ConnectionError,
+    ServerError
+)
+
+try:
+    shadai = Shadai(api_key="invalid-key")
+    await shadai.health()
+except AuthenticationError:
+    print("Invalid API key")
+except ConnectionError:
+    print("Cannot connect to server")
+except ServerError as e:
+    print(f"Server error: {e}")
+```
+
+## 📝 Examples
+
+Check the `examples/` directory for complete examples:
+
+- `query_example.py` - Knowledge base queries
+- `summary_example.py` - Document summarization
+- `websearch_example.py` - Web search
+- `agent_example.py` - Intelligent agent workflow
+- `agent_synthesis_example.py` - Advanced synthesis with multiple data sources
+- `complete_workflow.py` - Full agent workflow with multiple examples
+
+Run examples:
+
+```bash
+cd client/
+python examples/query_example.py
+python examples/summary_example.py
+python examples/websearch_example.py
+python examples/agent_example.py
+python examples/agent_synthesis_example.py
+python examples/complete_workflow.py
+```
+
+## 🔒 Security
+
+- Always use environment variables for API keys
+- Never commit API keys to version control
+- Use HTTPS in production (`base_url="https://..."`)
+
+## 🤝 Contributing
+
+Contributions welcome! Please read our contributing guidelines.
+
+## 📄 License
+
+MIT License - see LICENSE file for details.
+
+## 🔗 Links
+
+- **Documentation**: https://docs.shadai.com
+- **GitHub**: https://github.com/shadai/shadai-client
+- **Issues**: https://github.com/shadai/shadai-client/issues
+
+## 💡 Support
+
+- 📧 Email: support@shadai.com
+- 💬 Discord: https://discord.gg/shadai
+- 📖 Docs: https://docs.shadai.com
+
+---
+
+Made with ❤️ by the Shadai Team
