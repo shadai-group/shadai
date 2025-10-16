@@ -327,11 +327,6 @@ def get_trend_analysis(topic: str, period: str = "2024") -> str:
 @timed
 async def simple_agent_example() -> None:
     """Simple agent example: Database search, report generation, and email."""
-    print("=" * 70)
-    print("SIMPLE AGENT EXAMPLE: Revenue Report Workflow")
-    print("=" * 70)
-    print()
-
     tools = [search_database, generate_report, send_email]
 
     prompt = """
@@ -343,17 +338,10 @@ async def simple_agent_example() -> None:
         async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
 
-    print("\n\n")
-
 
 @timed
 async def market_analysis_example() -> None:
     """Complex agent example: Comprehensive market analysis."""
-    print("=" * 70)
-    print("MARKET ANALYSIS EXAMPLE: AI Software Intelligence")
-    print("=" * 70)
-    print()
-
     tools = [
         get_market_data,
         get_customer_feedback,
@@ -371,8 +359,6 @@ async def market_analysis_example() -> None:
     async with Shadai(name="test") as shadai:
         async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
-
-    print("\n\n")
 
 
 async def main() -> None:

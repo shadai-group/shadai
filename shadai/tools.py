@@ -49,7 +49,7 @@ class QueryTool:
     async def __call__(
         self,
         query: str,
-        use_memory: bool = False,
+        use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
         Query the knowledge base with streaming response.
@@ -99,7 +99,7 @@ class SummarizeTool:
         self.client = client
         self.session_uuid = session_uuid
 
-    async def __call__(self, use_memory: bool = False) -> AsyncIterator[str]:
+    async def __call__(self, use_memory: bool = True) -> AsyncIterator[str]:
         """
         Generate summary of all session documents.
 
@@ -150,7 +150,7 @@ class WebSearchTool:
         self,
         prompt: str,
         use_web_search: bool = True,
-        use_memory: bool = False,
+        use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
         Search the web and get an answer.
@@ -213,7 +213,7 @@ class EngineTool:
         use_knowledge_base: bool = False,
         use_summary: bool = False,
         use_web_search: bool = False,
-        use_memory: bool = False,
+        use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
         Execute engine with multiple tool capabilities.
@@ -684,7 +684,7 @@ class Shadai:
         name: Optional[str] = None,
         temporal: bool = False,
         api_key: Optional[str] = None,
-        base_url: str = "https://apiv2.shadai.ai",
+        base_url: str = "http://localhost",
         timeout: int = 30,
     ) -> None:
         """
@@ -779,7 +779,7 @@ class Shadai:
     async def query(
         self,
         query: str,
-        use_memory: bool = False,
+        use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
         Query the knowledge base with streaming response.
@@ -805,7 +805,7 @@ class Shadai:
 
     async def summarize(
         self,
-        use_memory: bool = False,
+        use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
         Generate summary of all session documents.
@@ -834,7 +834,7 @@ class Shadai:
         self,
         prompt: str,
         use_web_search: bool = True,
-        use_memory: bool = False,
+        use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
         Search the web and get an answer.
@@ -869,7 +869,7 @@ class Shadai:
         use_knowledge_base: bool = False,
         use_summary: bool = False,
         use_web_search: bool = False,
-        use_memory: bool = False,
+        use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
         Execute unified engine with multiple tool capabilities.
