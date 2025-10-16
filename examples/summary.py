@@ -1,7 +1,7 @@
 """
-Summary Example
----------------
-Demonstrates how to summarize all documents in a session.
+Ejemplo de Resumen
+-------------------
+Demuestra cómo resumir todos los documentos en una sesión.
 """
 
 import asyncio
@@ -16,19 +16,9 @@ from shadai.timing import timed
 
 @timed
 async def main() -> None:
-    print("=" * 70)
-    print("SUMMARY EXAMPLE: Document Summarization")
-    print("=" * 70)
-    print()
-    print("Generating summary of all documents in the session...")
-    print("-" * 70)
-    print()
-
     async with Shadai(name="test") as shadai:
         async for chunk in shadai.summarize():
             print(chunk, end="", flush=True)
-
-    print("\n\n")
 
 
 if __name__ == "__main__":

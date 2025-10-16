@@ -39,7 +39,7 @@ class ShadaiClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "https://apiv2.shadai.ai",
+        base_url: str = "http://localhost",
         timeout: int = 30,
     ) -> None:
         """
@@ -302,3 +302,73 @@ class ShadaiClient:
 
         except aiohttp.ClientError as e:
             raise ConnectionError(f"Streaming request failed: {e}") from e
+
+    async def get_session_history(
+        self,
+        session_uuid: str,
+        page: int = 1,
+        page_size: int = 5,
+    ) -> Dict[str, Any]:
+        """
+        Get chat history for a session with pagination.
+
+        Retrieves conversation messages from the checkpointer for a specific session.
+        Returns messages in chronological order with pagination support.
+
+        Args:
+            session_uuid: Session UUID to retrieve history for
+            page: Page number (1-indexed, default: 1)
+            page_size: Messages per page (default: 5, max: 10)
+
+        Returns:
+            Dictionary containing:
+            - session_uuid: The session UUID
+            - session_name: The session name
+            - messages: Array of message objects for current page
+            - pagination: Pagination metadata
+
+        Examples:
+            >>> history = await client.get_session_history(
+            ...     session_uuid="abc-123",
+            ...     page=1,
+            ...     page_size=5
+            ... )
+            >>> print(f"Page {history['pagination']['page']}/{history['pagination']['total_pages']}")
+            >>> for msg in history['messages']:
+            ...     print(f"[{msg['role']}]: {msg['content']}")
+        """
+        result = await self.call_tool(
+            tool_name="session_get_history",
+            arguments={
+                "session_uuid": session_uuid,
+                "page": page,
+                "page_size": page_size,
+            },
+        )
+        return json.loads(result)
+
+    async def clear_session_history(
+        self,
+        session_uuid: str,
+    ) -> Dict[str, str]:
+        """
+        Clear chat history for a session.
+
+        Deletes all conversation messages from the checkpointer but keeps
+        the session and uploaded files intact. Only the chat history is removed.
+
+        Args:
+            session_uuid: Session UUID to clear history for
+
+        Returns:
+            Dictionary with success message, session_uuid, and session_name
+
+        Examples:
+            >>> result = await client.clear_session_history(session_uuid="abc-123")
+            >>> print(result['message'])  # "Chat history cleared successfully"
+        """
+        result = await self.call_tool(
+            tool_name="session_clear_history",
+            arguments={"session_uuid": session_uuid},
+        )
+        return json.loads(result)
