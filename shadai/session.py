@@ -5,12 +5,10 @@ Context manager for managing RAG session lifecycle.
 """
 
 import json
-import os
 from typing import Optional
 from uuid import uuid4
 
 from .client import ShadaiClient
-from .exceptions import InvalidArgumentsError
 
 
 class Session:

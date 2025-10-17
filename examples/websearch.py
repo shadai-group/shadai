@@ -16,7 +16,7 @@ from shadai.timing import timed
 
 @timed
 async def main() -> None:
-    prompt = "Cuánto quedó el partido del Bayern Múnich esta semana contra Frankfurt?"
+    prompt = "Cuánto quedó el partido del Bayern Múnich la última vez contra Frankfurt?"
 
     async with Shadai(name="test") as shadai:
         async for chunk in shadai.web_search(prompt=prompt, use_web_search=True):
