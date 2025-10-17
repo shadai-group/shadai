@@ -19,7 +19,7 @@ from shadai.timing import timed
 async def main() -> None:
     input_dir = os.path.join(os.path.dirname(__file__), "data")
 
-    async with Shadai(name="test_client") as shadai:
+    async with Shadai(name="test") as shadai:
         results = await shadai.ingest(folder_path=input_dir)
 
 
