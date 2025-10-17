@@ -16,6 +16,7 @@ from .exceptions import (
     AuthenticationError,
     ConnectionError,
     ServerError,
+    create_exception_from_error_response,
 )
 
 load_dotenv()
@@ -185,12 +186,22 @@ class ShadaiClient:
                     response.raise_for_status()
                     data = await response.json()
 
+                    # Check for JSON-RPC error format
                     if "error" in data:
                         error = data["error"]
                         raise ServerError(
-                            f"{error.get('message', 'Unknown error')} "
+                            message=f"{error.get('message', 'Unknown error')} "
                             f"(code: {error.get('code')})"
                         )
+
+                    # Check for standardized error response format
+                    result = data.get("result", {})
+                    if isinstance(result, dict) and result.get("success") is False:
+                        error_data = result.get("error", {})
+                        exception = create_exception_from_error_response(
+                            error_data=error_data
+                        )
+                        raise exception
 
                     return data
         except aiohttp.ClientError as e:
@@ -209,13 +220,17 @@ class ShadaiClient:
             arguments: Tool arguments as dictionary
 
         Returns:
-            Complete tool response as string
+            Complete tool response as JSON string (unwrapped from standardized format)
+
+        Raises:
+            ShadaiError: If tool returns error response
 
         Examples:
             >>> result = await client.call_tool(
-            ...     tool_name="shadai_planner",
-            ...     arguments={"prompt": "What tools should I use?"}
+            ...     tool_name="session_create",
+            ...     arguments={"name": "my-session"}
             ... )
+            >>> # Returns: '{"uuid": "123", "name": "my-session", ...}'
         """
         response = await self.call_rpc(
             method="tools/call",
@@ -226,9 +241,38 @@ class ShadaiClient:
         )
 
         content = response.get("result", {}).get("content", [])
-        if content:
-            return content[0].get("text", "")
-        return ""
+        if not content:
+            return ""
+
+        text_response = content[0].get("text", "")
+        if not text_response:
+            return ""
+
+        # Parse the response to check if it's a standardized format
+        try:
+            parsed = json.loads(text_response)
+
+            # Check if it's a standardized response with success field
+            if isinstance(parsed, dict) and "success" in parsed:
+                if parsed.get("success") is False:
+                    # Error response - create and raise exception
+                    error_data = parsed.get("error", {})
+                    exception = create_exception_from_error_response(
+                        error_data=error_data
+                    )
+                    raise exception
+
+                # Success response - unwrap and return just the data
+                if parsed.get("success") is True:
+                    data = parsed.get("data", {})
+                    return json.dumps(data)
+
+            # Not a standardized format - return as is
+            return text_response
+
+        except json.JSONDecodeError:
+            # Not JSON - return as is
+            return text_response
 
     async def stream_tool(
         self,

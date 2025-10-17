@@ -15,7 +15,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shadai import Shadai, tool
 from shadai.timing import timed
 
-
 # =============================================================================
 # Simple Agent Tools
 # =============================================================================

@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="shadai",
-    version="0.1.29",
+    version="0.1.30",
     packages=find_packages(),
     install_requires=[
         "aiohttp>=3.8.0",

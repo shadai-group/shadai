@@ -4,9 +4,9 @@ Shadai Tools - High-Level API Wrappers
 Beautiful, Pythonic interfaces for Shadai AI tools.
 """
 
-import json
 import asyncio
 import base64
+import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
@@ -210,9 +210,9 @@ class EngineTool:
     async def __call__(
         self,
         prompt: str,
-        use_knowledge_base: bool = False,
-        use_summary: bool = False,
-        use_web_search: bool = False,
+        use_knowledge_base: bool = True,
+        use_summary: bool = True,
+        use_web_search: bool = True,
         use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
@@ -866,9 +866,9 @@ class Shadai:
     async def engine(
         self,
         prompt: str,
-        use_knowledge_base: bool = False,
-        use_summary: bool = False,
-        use_web_search: bool = False,
+        use_knowledge_base: bool = True,
+        use_summary: bool = True,
+        use_web_search: bool = True,
         use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
