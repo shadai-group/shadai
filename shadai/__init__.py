@@ -48,12 +48,39 @@ GitHub: https://github.com/shadai/shadai-client
 from .__version__ import __author__, __description__, __version__
 from .client import ShadaiClient
 from .exceptions import (
+    # Base
+    ShadaiError,
+    # Connection & Auth
     AuthenticationError,
     ConnectionError,
-    InvalidArgumentsError,
+    InvalidAPIKeyError,
+    MissingAccountSetupError,
+    # Resources
+    ResourceError,
+    SessionNotFoundError,
+    FileNotFoundError,
+    SessionAlreadyExistsError,
+    # Validation
+    ValidationError,
+    InvalidFileTypeError,
+    InvalidParameterError,
+    MissingParameterError,
+    # Authorization & Limits
+    AuthorizationError,
+    PlanLimitExceededError,
+    KnowledgePointsLimitExceededError,
+    FileSizeLimitExceededError,
+    # External Services
+    ExternalServiceError,
+    LLMProviderError,
+    # Processing
+    ProcessingError,
+    FileParsingError,
+    ChunkIngestionError,
+    # System
+    SystemError,
+    ConfigurationError,
     ServerError,
-    ShadaiError,
-    ToolNotFoundError,
 )
 from .models import AgentTool, Tool, ToolDefinition, ToolRegistry, tool
 from .tools import (
@@ -83,12 +110,38 @@ __all__ = [
     "Tool",
     "ToolDefinition",
     "ToolRegistry",
-    # Exceptions
+    # Exceptions - Base
     "ShadaiError",
+    # Exceptions - Connection & Auth
     "AuthenticationError",
     "ConnectionError",
-    "ToolNotFoundError",
-    "InvalidArgumentsError",
+    "InvalidAPIKeyError",
+    "MissingAccountSetupError",
+    # Exceptions - Resources
+    "ResourceError",
+    "SessionNotFoundError",
+    "FileNotFoundError",
+    "SessionAlreadyExistsError",
+    # Exceptions - Validation
+    "ValidationError",
+    "InvalidFileTypeError",
+    "InvalidParameterError",
+    "MissingParameterError",
+    # Exceptions - Authorization & Limits
+    "AuthorizationError",
+    "PlanLimitExceededError",
+    "KnowledgePointsLimitExceededError",
+    "FileSizeLimitExceededError",
+    # Exceptions - External Services
+    "ExternalServiceError",
+    "LLMProviderError",
+    # Exceptions - Processing
+    "ProcessingError",
+    "FileParsingError",
+    "ChunkIngestionError",
+    # Exceptions - System
+    "SystemError",
+    "ConfigurationError",
     "ServerError",
     # Version info
     "__version__",
