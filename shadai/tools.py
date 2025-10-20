@@ -80,11 +80,24 @@ class SummarizeTool:
     """
     Document Summarization Tool.
 
-    Generates comprehensive summaries of all documents in a session.
+    Generates comprehensive summaries of all documents in a session,
+    with optional question-answering capability.
+
+    This tool supports two modes:
+    1. Direct Summary (return_direct=True): Returns consolidated summary
+    2. Question Answering (return_direct=False): Uses summary to answer a question
 
     Examples:
+        >>> # Mode 1: Get summary directly
         >>> summarize = SummarizeTool(client=client, session_uuid="...")
         >>> async for chunk in summarize():
+        ...     print(chunk, end="", flush=True)
+
+        >>> # Mode 2: Ask questions about the summary
+        >>> async for chunk in summarize(
+        ...     prompt="What are the main topics?",
+        ...     return_direct=False
+        ... ):
         ...     print(chunk, end="", flush=True)
     """
 
@@ -99,24 +112,44 @@ class SummarizeTool:
         self.client = client
         self.session_uuid = session_uuid
 
-    async def __call__(self, use_memory: bool = True) -> AsyncIterator[str]:
+    async def __call__(
+        self,
+        prompt: str | None = None,
+        return_direct: bool = True,
+        use_memory: bool = True,
+    ) -> AsyncIterator[str]:
         """
-        Generate summary of all session documents.
+        Generate summary of all session documents or answer questions about them.
 
         Args:
-            use_memory: Enable conversation memory
+            prompt: Optional question to answer using the summary (default: None)
+            return_direct: If True, return summary directly; if False, answer the prompt (default: True)
+            use_memory: Enable conversation memory (default: True)
 
         Yields:
-            Text chunks from the summary
+            Text chunks from the summary or answer
+
+        Raises:
+            InvalidParameterError: If prompt/return_direct mutual exclusivity is violated
 
         Examples:
+            >>> # Get summary directly (default behavior)
             >>> async for chunk in summarize_tool():
+            ...     print(chunk, end="")
+
+            >>> # Ask a question about the summary
+            >>> async for chunk in summarize_tool(
+            ...     prompt="What are the key findings?",
+            ...     return_direct=False
+            ... ):
             ...     print(chunk, end="")
         """
         async for chunk in self.client.stream_tool(
             tool_name="shadai_summarize",
             arguments={
                 "session_uuid": self.session_uuid,
+                "prompt": prompt,
+                "return_direct": return_direct,
                 "use_memory": use_memory,
             },
         ):
@@ -805,20 +838,40 @@ class Shadai:
 
     async def summarize(
         self,
+        prompt: str | None = None,
+        return_direct: bool = True,
         use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
-        Generate summary of all session documents.
+        Generate summary of all session documents or answer questions about them.
+
+        This method supports two modes:
+        1. Direct Summary (return_direct=True): Returns consolidated summary
+        2. Question Answering (return_direct=False): Uses summary to answer a question
 
         Args:
-            use_memory: Enable conversation memory
+            prompt: Optional question to answer using the summary (default: None)
+            return_direct: If True, return summary directly; if False, answer the prompt (default: True)
+            use_memory: Enable conversation memory (default: True)
 
         Yields:
-            Text chunks from the summary
+            Text chunks from the summary or answer
+
+        Raises:
+            InvalidParameterError: If prompt/return_direct mutual exclusivity is violated
 
         Examples:
+            >>> # Mode 1: Get summary directly (default)
             >>> async with Shadai(name="my-session") as shadai:
             ...     async for chunk in shadai.summarize():
+            ...         print(chunk, end="")
+
+            >>> # Mode 2: Ask questions about the summary
+            >>> async with Shadai(name="my-session") as shadai:
+            ...     async for chunk in shadai.summarize(
+            ...         prompt="What are the main topics?",
+            ...         return_direct=False
+            ...     ):
             ...         print(chunk, end="")
         """
         if not self._session:
@@ -827,7 +880,11 @@ class Shadai:
         summarize_tool = SummarizeTool(
             client=self.client, session_uuid=self._session.uuid
         )
-        async for chunk in summarize_tool(use_memory=use_memory):
+        async for chunk in summarize_tool(
+            prompt=prompt,
+            return_direct=return_direct,
+            use_memory=use_memory,
+        ):
             yield chunk
 
     async def web_search(
