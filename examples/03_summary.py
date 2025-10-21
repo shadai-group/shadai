@@ -12,6 +12,8 @@ import asyncio
 import os
 import sys
 
+from shadai.models import EmbeddingModel, LLMModel
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shadai import Shadai
@@ -21,9 +23,17 @@ from shadai.timing import timed
 @timed
 async def example_direct_summary() -> None:
     """Ejemplo 1: Obtener resumen directo (comportamiento por defecto)."""
-    print("\n=== MODO 1: RESUMEN DIRECTO ===\n")
 
-    async with Shadai(name="test") as shadai:
+    system_prompt = """
+    Actua como un experto en el area de leyes y creatividad digital.
+    """
+
+    async with Shadai(
+        name="test",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
+        system_prompt=system_prompt,
+    ) as shadai:
         async for chunk in shadai.summarize():
             print(chunk, end="", flush=True)
         print("\n")
@@ -32,25 +42,29 @@ async def example_direct_summary() -> None:
 @timed
 async def example_question_answering() -> None:
     """Ejemplo 2: Hacer preguntas sobre el resumen."""
-    print("\n=== MODO 2: PREGUNTAS Y RESPUESTAS ===\n")
 
-    async with Shadai(name="test") as shadai:
-        # Primera pregunta
-        print("Pregunta: ¿Cuáles son los temas principales?\n")
+    system_prompt = """
+    Actua como un experto en el area de leyes y creatividad digital.
+    """
+
+    async with Shadai(
+        name="test",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
+        system_prompt=system_prompt,
+    ) as shadai:
         async for chunk in shadai.summarize(
             prompt="¿Cuáles son los temas principales discutidos en los documentos?",
             return_direct=False,
-            use_memory=True,
+            use_memory=False,
         ):
             print(chunk, end="", flush=True)
         print("\n\n")
 
-        # Segunda pregunta (con memoria de conversación)
-        print("Pregunta de seguimiento: ¿Puedes profundizar en el primer tema?\n")
         async for chunk in shadai.summarize(
             prompt="¿Puedes profundizar más en el primer tema que mencionaste?",
             return_direct=False,
-            use_memory=True,  # Mantiene el contexto de la pregunta anterior
+            use_memory=False,
         ):
             print(chunk, end="", flush=True)
         print("\n")
@@ -58,10 +72,8 @@ async def example_question_answering() -> None:
 
 async def main() -> None:
     """Ejecuta todos los ejemplos."""
-    # Ejemplo 1: Resumen directo
     await example_direct_summary()
 
-    # Ejemplo 2: Preguntas y respuestas
     await example_question_answering()
 
 

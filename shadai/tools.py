@@ -9,10 +9,10 @@ import base64
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Union
 
 from .client import ShadaiClient
-from .models import AgentTool
+from .models import AgentTool, EmbeddingModel, LLMModel
 
 if TYPE_CHECKING:
     from .session import Session
@@ -715,10 +715,13 @@ class Shadai:
     def __init__(
         self,
         name: Optional[str] = None,
+        llm_model: Optional[Union[str, LLMModel]] = None,
+        embedding_model: Optional[Union[str, EmbeddingModel]] = None,
         temporal: bool = False,
         api_key: Optional[str] = None,
         base_url: str = "http://localhost",
         timeout: int = 30,
+        system_prompt: Optional[str] = None,
     ) -> None:
         """
         Initialize Shadai client with session management.
@@ -729,8 +732,13 @@ class Shadai:
             api_key: Your Shadai API key (defaults to SHADAI_API_KEY env var)
             base_url: Base URL of Shadai server
             timeout: Request timeout in seconds
+            system_prompt: Optional system prompt for the session
+            llm_model: Optional LLM model (e.g., LLMModel.OPENAI_GPT_4O_MINI)
+            embedding_model: Optional embedding model (e.g., EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL)
 
         Examples:
+            >>> from shadai import Shadai, LLMModel, EmbeddingModel
+            >>>
             >>> # Use existing session
             >>> async with Shadai(name="my-session") as shadai:
             ...     async for chunk in shadai.query(query="What is AI?"):
@@ -739,6 +747,16 @@ class Shadai:
             >>> # Create temporal session (auto-deleted)
             >>> async with Shadai(temporal=True) as shadai:
             ...     async for chunk in shadai.query(query="What is AI?"):
+            ...         print(chunk, end="")
+            >>>
+            >>> # Create session with custom models
+            >>> async with Shadai(
+            ...     name="my-session",
+            ...     llm_model=LLMModel.OPENAI_GPT_4O_MINI,
+            ...     embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
+            ...     system_prompt="You are a helpful assistant."
+            ... ) as shadai:
+            ...     async for chunk in shadai.query(query="Hello!"):
             ...         print(chunk, end="")
         """
         if not api_key:
@@ -753,6 +771,9 @@ class Shadai:
         )
         self._session_name = name
         self._temporal = temporal
+        self._system_prompt = system_prompt
+        self._llm_model = llm_model
+        self._embedding_model = embedding_model
         self._session: Optional["Session"] = None
 
     async def __aenter__(self) -> "Shadai":
@@ -767,6 +788,9 @@ class Shadai:
             name=self._session_name,
             temporal=self._temporal,
             client=self.client,
+            system_prompt=self._system_prompt,
+            llm_model=self._llm_model,
+            embedding_model=self._embedding_model,
         )
         await self._session.__aenter__()
         return self

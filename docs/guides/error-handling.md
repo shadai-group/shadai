@@ -2,6 +2,73 @@
 
 Build robust applications with Shadai's comprehensive error handling system that provides structured, actionable error information.
 
+## Automatic Error Handling
+
+**New in v0.1.31**: Shadai now automatically displays clean, user-friendly error messages without requiring try-except blocks!
+
+### Clean Error Messages by Default
+
+When an error occurs, Shadai automatically displays a formatted message instead of a verbose Python traceback:
+
+```python
+from shadai import Shadai
+
+async def main():
+    # No try-except needed!
+    async with Shadai(name="test") as shadai:
+        async for chunk in shadai.query("What is AI?"):
+            print(chunk, end="")
+
+# If an error occurs, you'll see:
+# ❌ Error [CONFIGURATION_ERROR]:
+#    Invalid configuration for 'provider_credentials': You need to configure
+#    at least one Provider credential before creating a session.
+#
+# 💡 Suggestion:
+#    Add your Provider credential in → Secrets.
+```
+
+**No more verbose tracebacks!** The error handler automatically:
+- ✅ Shows the error code in brackets
+- ✅ Displays a clear, concise message
+- ✅ Includes actionable suggestions when available
+- ✅ Hides internal stack traces from users
+- ✅ Exits cleanly with appropriate error code
+
+### When to Use Manual Error Handling
+
+You can still use try-except blocks for programmatic error handling:
+
+```python
+from shadai import Shadai, ConfigurationError, KnowledgePointsLimitExceededError
+
+async def main():
+    try:
+        async with Shadai(name="test") as shadai:
+            async for chunk in shadai.query("Question"):
+                print(chunk, end="")
+
+    except ConfigurationError as e:
+        # Custom handling for configuration errors
+        show_setup_modal(e.context["config_key"])
+
+    except KnowledgePointsLimitExceededError as e:
+        # Custom handling for quota errors
+        show_upgrade_prompt(e.context["plan_name"])
+```
+
+**Use manual error handling when:**
+- Building UIs that need to show custom error dialogs
+- Implementing retry logic or fallback mechanisms
+- Logging errors to external services
+- Need programmatic access to error details
+
+**Don't use manual error handling when:**
+- Building simple CLI scripts
+- Prototyping or testing
+- Error messages are displayed directly to users
+- Default formatting is sufficient
+
 ## Overview
 
 Shadai uses a hierarchical exception system with:
@@ -10,6 +77,7 @@ Shadai uses a hierarchical exception system with:
 - **Contextual information** - Debug details and affected resources
 - **Retry flags** - Indicates if operation can be retried
 - **Suggestions** - Actionable guidance for resolution
+- **Automatic formatting** - Clean output without verbose tracebacks
 
 ## Exception Hierarchy
 

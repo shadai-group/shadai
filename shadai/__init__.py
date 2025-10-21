@@ -47,42 +47,51 @@ GitHub: https://github.com/shadai/shadai-client
 
 from .__version__ import __author__, __description__, __version__
 from .client import ShadaiClient
+from .error_handler import install_exception_handler
 from .exceptions import (
-    # Base
-    ShadaiError,
     # Connection & Auth
     AuthenticationError,
-    ConnectionError,
-    InvalidAPIKeyError,
-    MissingAccountSetupError,
-    # Resources
-    ResourceError,
-    SessionNotFoundError,
-    FileNotFoundError,
-    SessionAlreadyExistsError,
-    # Validation
-    ValidationError,
-    InvalidFileTypeError,
-    InvalidParameterError,
-    MissingParameterError,
     # Authorization & Limits
     AuthorizationError,
-    PlanLimitExceededError,
-    KnowledgePointsLimitExceededError,
-    FileSizeLimitExceededError,
+    ChunkIngestionError,
+    ConfigurationError,
+    ConnectionError,
     # External Services
     ExternalServiceError,
+    FileNotFoundError,
+    FileParsingError,
+    FileSizeLimitExceededError,
+    InvalidAPIKeyError,
+    InvalidFileTypeError,
+    InvalidParameterError,
+    KnowledgePointsLimitExceededError,
     LLMProviderError,
+    MissingAccountSetupError,
+    MissingParameterError,
+    PlanLimitExceededError,
     # Processing
     ProcessingError,
-    FileParsingError,
-    ChunkIngestionError,
+    # Resources
+    ResourceError,
+    ServerError,
+    SessionAlreadyExistsError,
+    SessionNotFoundError,
+    # Base
+    ShadaiError,
     # System
     SystemError,
-    ConfigurationError,
-    ServerError,
+    # Validation
+    ValidationError,
 )
-from .models import AgentTool, Tool, ToolDefinition, ToolRegistry, tool
+from .models import (
+    AgentTool,
+    EmbeddingModel,
+    LLMModel,
+    Tool,
+    ToolDefinition,
+    ToolRegistry,
+    tool,
+)
 from .tools import (
     EngineTool,
     IngestTool,
@@ -110,6 +119,8 @@ __all__ = [
     "Tool",
     "ToolDefinition",
     "ToolRegistry",
+    "LLMModel",
+    "EmbeddingModel",
     # Exceptions - Base
     "ShadaiError",
     # Exceptions - Connection & Auth
@@ -148,3 +159,6 @@ __all__ = [
     "__author__",
     "__description__",
 ]
+
+# Install custom exception handler for clean error messages
+install_exception_handler()

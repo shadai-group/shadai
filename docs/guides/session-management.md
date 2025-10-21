@@ -98,6 +98,141 @@ Shadai(name="my session")  # Spaces not recommended
 Shadai(name="临时")  # Use English for consistency
 ```
 
+## Model Configuration
+
+You can configure which LLM and embedding models your session uses. This allows you to choose the best model for your specific use case based on performance, cost, and capabilities.
+
+### Specifying Models
+
+```python
+from shadai import Shadai, LLMModel, EmbeddingModel
+
+# Specify both LLM and embedding models
+async with Shadai(
+    name="ai-research",
+    llm_model=LLMModel.OPENAI_GPT_4O,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE
+) as shadai:
+    await shadai.ingest(folder_path="./research-papers")
+    async for chunk in shadai.query("What are the key findings?"):
+        print(chunk, end="")
+```
+
+### Available Models
+
+**LLM Models (31 options):**
+- **OpenAI**: GPT-5, GPT-4.1, GPT-4o series
+- **Azure**: Same models via Azure deployment
+- **Anthropic**: Claude Sonnet 4.5, Claude Opus 4, Claude Haiku 3.5
+- **Google**: Gemini 2.5 Pro, Gemini 2.0 Flash series
+
+**Embedding Models (5 options):**
+- **OpenAI**: text-embedding-3-large, text-embedding-3-small
+- **Azure**: Same embeddings via Azure
+- **Google**: gemini-embedding-001
+
+[See complete model list →](../api-reference/shadai-client.md#model-selection)
+
+### Model Selection Examples
+
+#### Cost-Effective Setup
+
+```python
+# Fast and affordable for general use
+async with Shadai(
+    name="general-session",
+    llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+    embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001
+) as shadai:
+    pass
+```
+
+#### Premium Performance
+
+```python
+# Best quality for critical tasks
+async with Shadai(
+    name="premium-session",
+    llm_model=LLMModel.OPENAI_GPT_4O,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE
+) as shadai:
+    pass
+```
+
+#### Creative Tasks
+
+```python
+# Claude excels at creative writing
+async with Shadai(
+    name="creative-session",
+    llm_model=LLMModel.ANTHROPIC_CLAUDE_SONNET_4_5,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
+    system_prompt="You are a creative writing assistant."
+) as shadai:
+    pass
+```
+
+#### Mixed Providers
+
+```python
+# Combine different providers
+async with Shadai(
+    name="mixed-session",
+    llm_model=LLMModel.GOOGLE_GEMINI_2_5_PRO,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE
+) as shadai:
+    pass
+```
+
+#### Enterprise (Azure)
+
+```python
+# Use Azure deployment
+async with Shadai(
+    name="enterprise-session",
+    llm_model=LLMModel.AZURE_GPT_4O,
+    embedding_model=EmbeddingModel.AZURE_TEXT_EMBEDDING_3_LARGE
+) as shadai:
+    pass
+```
+
+### System Prompts
+
+Customize your session's behavior with system prompts:
+
+```python
+async with Shadai(
+    name="legal-assistant",
+    llm_model=LLMModel.ANTHROPIC_CLAUDE_OPUS_4,
+    system_prompt="""
+    You are an expert legal assistant specializing in contract analysis.
+    Provide detailed, accurate responses with legal citations when applicable.
+    """
+) as shadai:
+    await shadai.ingest(folder_path="./contracts")
+    async for chunk in shadai.query("Analyze the liability clauses"):
+        print(chunk, end="")
+```
+
+### Model Selection Best Practices
+
+**Choose your LLM based on:**
+- **Task complexity**: GPT-4o/Claude Opus for complex reasoning, Gemini Flash for simple tasks
+- **Speed requirements**: Gemini Flash models are fastest
+- **Cost constraints**: Google models generally most cost-effective
+- **Specific capabilities**: Claude for creative work, GPT-4 for technical analysis
+
+**Choose your embedding model based on:**
+- **Quality needs**: text-embedding-3-large for best retrieval accuracy
+- **Speed/cost**: text-embedding-3-small or Gemini embeddings for efficiency
+- **Provider alignment**: Match with your LLM provider when possible
+
+**System prompt tips:**
+- Be specific about role and expertise
+- Include output format preferences
+- Mention any constraints or guidelines
+- Keep it concise but comprehensive
+
 ## Session Lifecycle
 
 ### 1. Session Creation
