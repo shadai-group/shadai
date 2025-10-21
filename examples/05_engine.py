@@ -14,7 +14,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shadai import Shadai
+from shadai import EmbeddingModel, LLMModel, Shadai
 from shadai.timing import timed
 
 
@@ -29,14 +29,26 @@ async def main() -> None:
     Proporciona un análisis integral combinando conocimientos de los documentos con información actual.
     """
 
-    async with Shadai(name="test") as shadai:
+    system_prompt = """
+    Actua como un consultor de negocios.
+    Proporciona un análisis integral combinando conocimientos de los documentos con información actual.
+    """
+
+    async with Shadai(
+        name="test",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
+        system_prompt=system_prompt,
+    ) as shadai:
         async for chunk in shadai.engine(
             prompt=prompt,
             use_knowledge_base=True,
             use_summary=True,
             use_web_search=True,
+            use_memory=False,
         ):
             print(chunk, end="", flush=True)
+        print("\n")
 
 
 if __name__ == "__main__":

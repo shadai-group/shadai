@@ -9,10 +9,10 @@ import base64
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Union
 
 from .client import ShadaiClient
-from .models import AgentTool
+from .models import AgentTool, EmbeddingModel, LLMModel
 
 if TYPE_CHECKING:
     from .session import Session
@@ -80,11 +80,24 @@ class SummarizeTool:
     """
     Document Summarization Tool.
 
-    Generates comprehensive summaries of all documents in a session.
+    Generates comprehensive summaries of all documents in a session,
+    with optional question-answering capability.
+
+    This tool supports two modes:
+    1. Direct Summary (return_direct=True): Returns consolidated summary
+    2. Question Answering (return_direct=False): Uses summary to answer a question
 
     Examples:
+        >>> # Mode 1: Get summary directly
         >>> summarize = SummarizeTool(client=client, session_uuid="...")
         >>> async for chunk in summarize():
+        ...     print(chunk, end="", flush=True)
+
+        >>> # Mode 2: Ask questions about the summary
+        >>> async for chunk in summarize(
+        ...     prompt="What are the main topics?",
+        ...     return_direct=False
+        ... ):
         ...     print(chunk, end="", flush=True)
     """
 
@@ -99,24 +112,44 @@ class SummarizeTool:
         self.client = client
         self.session_uuid = session_uuid
 
-    async def __call__(self, use_memory: bool = True) -> AsyncIterator[str]:
+    async def __call__(
+        self,
+        prompt: str | None = None,
+        return_direct: bool = True,
+        use_memory: bool = True,
+    ) -> AsyncIterator[str]:
         """
-        Generate summary of all session documents.
+        Generate summary of all session documents or answer questions about them.
 
         Args:
-            use_memory: Enable conversation memory
+            prompt: Optional question to answer using the summary (default: None)
+            return_direct: If True, return summary directly; if False, answer the prompt (default: True)
+            use_memory: Enable conversation memory (default: True)
 
         Yields:
-            Text chunks from the summary
+            Text chunks from the summary or answer
+
+        Raises:
+            InvalidParameterError: If prompt/return_direct mutual exclusivity is violated
 
         Examples:
+            >>> # Get summary directly (default behavior)
             >>> async for chunk in summarize_tool():
+            ...     print(chunk, end="")
+
+            >>> # Ask a question about the summary
+            >>> async for chunk in summarize_tool(
+            ...     prompt="What are the key findings?",
+            ...     return_direct=False
+            ... ):
             ...     print(chunk, end="")
         """
         async for chunk in self.client.stream_tool(
             tool_name="shadai_summarize",
             arguments={
                 "session_uuid": self.session_uuid,
+                "prompt": prompt,
+                "return_direct": return_direct,
                 "use_memory": use_memory,
             },
         ):
@@ -682,10 +715,13 @@ class Shadai:
     def __init__(
         self,
         name: Optional[str] = None,
+        llm_model: Optional[Union[str, LLMModel]] = None,
+        embedding_model: Optional[Union[str, EmbeddingModel]] = None,
         temporal: bool = False,
         api_key: Optional[str] = None,
         base_url: str = "http://localhost",
         timeout: int = 30,
+        system_prompt: Optional[str] = None,
     ) -> None:
         """
         Initialize Shadai client with session management.
@@ -696,8 +732,13 @@ class Shadai:
             api_key: Your Shadai API key (defaults to SHADAI_API_KEY env var)
             base_url: Base URL of Shadai server
             timeout: Request timeout in seconds
+            system_prompt: Optional system prompt for the session
+            llm_model: Optional LLM model (e.g., LLMModel.OPENAI_GPT_4O_MINI)
+            embedding_model: Optional embedding model (e.g., EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL)
 
         Examples:
+            >>> from shadai import Shadai, LLMModel, EmbeddingModel
+            >>>
             >>> # Use existing session
             >>> async with Shadai(name="my-session") as shadai:
             ...     async for chunk in shadai.query(query="What is AI?"):
@@ -706,6 +747,16 @@ class Shadai:
             >>> # Create temporal session (auto-deleted)
             >>> async with Shadai(temporal=True) as shadai:
             ...     async for chunk in shadai.query(query="What is AI?"):
+            ...         print(chunk, end="")
+            >>>
+            >>> # Create session with custom models
+            >>> async with Shadai(
+            ...     name="my-session",
+            ...     llm_model=LLMModel.OPENAI_GPT_4O_MINI,
+            ...     embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
+            ...     system_prompt="You are a helpful assistant."
+            ... ) as shadai:
+            ...     async for chunk in shadai.query(query="Hello!"):
             ...         print(chunk, end="")
         """
         if not api_key:
@@ -720,6 +771,9 @@ class Shadai:
         )
         self._session_name = name
         self._temporal = temporal
+        self._system_prompt = system_prompt
+        self._llm_model = llm_model
+        self._embedding_model = embedding_model
         self._session: Optional["Session"] = None
 
     async def __aenter__(self) -> "Shadai":
@@ -734,6 +788,9 @@ class Shadai:
             name=self._session_name,
             temporal=self._temporal,
             client=self.client,
+            system_prompt=self._system_prompt,
+            llm_model=self._llm_model,
+            embedding_model=self._embedding_model,
         )
         await self._session.__aenter__()
         return self
@@ -805,20 +862,40 @@ class Shadai:
 
     async def summarize(
         self,
+        prompt: str | None = None,
+        return_direct: bool = True,
         use_memory: bool = True,
     ) -> AsyncIterator[str]:
         """
-        Generate summary of all session documents.
+        Generate summary of all session documents or answer questions about them.
+
+        This method supports two modes:
+        1. Direct Summary (return_direct=True): Returns consolidated summary
+        2. Question Answering (return_direct=False): Uses summary to answer a question
 
         Args:
-            use_memory: Enable conversation memory
+            prompt: Optional question to answer using the summary (default: None)
+            return_direct: If True, return summary directly; if False, answer the prompt (default: True)
+            use_memory: Enable conversation memory (default: True)
 
         Yields:
-            Text chunks from the summary
+            Text chunks from the summary or answer
+
+        Raises:
+            InvalidParameterError: If prompt/return_direct mutual exclusivity is violated
 
         Examples:
+            >>> # Mode 1: Get summary directly (default)
             >>> async with Shadai(name="my-session") as shadai:
             ...     async for chunk in shadai.summarize():
+            ...         print(chunk, end="")
+
+            >>> # Mode 2: Ask questions about the summary
+            >>> async with Shadai(name="my-session") as shadai:
+            ...     async for chunk in shadai.summarize(
+            ...         prompt="What are the main topics?",
+            ...         return_direct=False
+            ...     ):
             ...         print(chunk, end="")
         """
         if not self._session:
@@ -827,7 +904,11 @@ class Shadai:
         summarize_tool = SummarizeTool(
             client=self.client, session_uuid=self._session.uuid
         )
-        async for chunk in summarize_tool(use_memory=use_memory):
+        async for chunk in summarize_tool(
+            prompt=prompt,
+            return_direct=return_direct,
+            use_memory=use_memory,
+        ):
             yield chunk
 
     async def web_search(

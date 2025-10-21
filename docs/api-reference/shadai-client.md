@@ -14,7 +14,10 @@ Shadai(
     temporal: bool = False,
     api_key: str = None,
     base_url: str = "http://localhost",
-    timeout: int = 30
+    timeout: int = 30,
+    system_prompt: str = None,
+    llm_model: LLMModel = None,
+    embedding_model: EmbeddingModel = None
 )
 ```
 
@@ -27,6 +30,9 @@ Shadai(
 | `api_key` | `str` | `None` | API key (reads from env if not provided) |
 | `base_url` | `str` | `"http://localhost"` | Shadai server URL |
 | `timeout` | `int` | `30` | Request timeout in seconds |
+| `system_prompt` | `str` | `None` | Custom system prompt for the session |
+| `llm_model` | `LLMModel` | `None` | LLM model to use (see Model Selection) |
+| `embedding_model` | `EmbeddingModel` | `None` | Embedding model to use (see Model Selection) |
 
 **Examples:**
 
@@ -45,6 +51,125 @@ async with Shadai(
     api_key="your-key",
     base_url="https://api.shadai.com",
     timeout=60
+) as shadai:
+    pass
+
+# With custom models and system prompt
+from shadai import LLMModel, EmbeddingModel
+
+async with Shadai(
+    name="ai-analysis",
+    llm_model=LLMModel.OPENAI_GPT_4O,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE,
+    system_prompt="You are an expert data analyst."
+) as shadai:
+    pass
+
+# Mix providers (Google LLM + OpenAI embeddings)
+async with Shadai(
+    name="mixed-providers",
+    llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL
+) as shadai:
+    pass
+```
+
+## Model Selection
+
+### Available LLM Models
+
+```python
+from shadai import LLMModel
+
+# OpenAI Models
+LLMModel.OPENAI_GPT_5
+LLMModel.OPENAI_GPT_5_MINI
+LLMModel.OPENAI_GPT_5_NANO
+LLMModel.OPENAI_GPT_4_1
+LLMModel.OPENAI_GPT_4_1_MINI
+LLMModel.OPENAI_GPT_4O
+LLMModel.OPENAI_GPT_4O_MINI
+
+# Azure Models
+LLMModel.AZURE_GPT_5
+LLMModel.AZURE_GPT_5_MINI
+LLMModel.AZURE_GPT_5_NANO
+LLMModel.AZURE_GPT_4_1
+LLMModel.AZURE_GPT_4_1_MINI
+LLMModel.AZURE_GPT_4O
+LLMModel.AZURE_GPT_4O_MINI
+
+# Anthropic Models
+LLMModel.ANTHROPIC_CLAUDE_SONNET_4_5
+LLMModel.ANTHROPIC_CLAUDE_SONNET_4
+LLMModel.ANTHROPIC_CLAUDE_3_7_SONNET
+LLMModel.ANTHROPIC_CLAUDE_OPUS_4_1
+LLMModel.ANTHROPIC_CLAUDE_OPUS_4
+LLMModel.ANTHROPIC_CLAUDE_3_5_HAIKU
+
+# Google Models
+LLMModel.GOOGLE_GEMINI_2_5_PRO
+LLMModel.GOOGLE_GEMINI_2_5_FLASH
+LLMModel.GOOGLE_GEMINI_2_5_FLASH_LITE
+LLMModel.GOOGLE_GEMINI_2_0_FLASH
+LLMModel.GOOGLE_GEMINI_2_0_FLASH_LITE
+```
+
+### Available Embedding Models
+
+```python
+from shadai import EmbeddingModel
+
+# OpenAI Embeddings
+EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE
+EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL
+
+# Azure Embeddings
+EmbeddingModel.AZURE_TEXT_EMBEDDING_3_LARGE
+EmbeddingModel.AZURE_TEXT_EMBEDDING_3_SMALL
+
+# Google Embeddings
+EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001
+```
+
+### Model Selection Examples
+
+```python
+from shadai import Shadai, LLMModel, EmbeddingModel
+
+# OpenAI GPT-4o with large embeddings
+async with Shadai(
+    name="premium-session",
+    llm_model=LLMModel.OPENAI_GPT_4O,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE
+) as shadai:
+    async for chunk in shadai.query("Detailed analysis"):
+        print(chunk, end="")
+
+# Fast and cost-effective (Google)
+async with Shadai(
+    name="fast-session",
+    llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+    embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001
+) as shadai:
+    async for chunk in shadai.query("Quick question"):
+        print(chunk, end="")
+
+# Claude for creative tasks
+async with Shadai(
+    name="creative-session",
+    llm_model=LLMModel.ANTHROPIC_CLAUDE_SONNET_4_5,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
+    system_prompt="You are a creative writing assistant."
+) as shadai:
+    async for chunk in shadai.query("Write a story"):
+        print(chunk, end="")
+
+# Azure deployment
+async with Shadai(
+    name="enterprise-session",
+    llm_model=LLMModel.AZURE_GPT_4O,
+    embedding_model=EmbeddingModel.AZURE_TEXT_EMBEDDING_3_LARGE
 ) as shadai:
     pass
 ```
