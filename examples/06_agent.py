@@ -13,6 +13,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shadai import Shadai, tool
+from shadai.models import EmbeddingModel, LLMModel
 from shadai.timing import timed
 
 # =============================================================================
@@ -328,14 +329,23 @@ async def simple_agent_example() -> None:
     """Simple agent example: Database search, report generation, and email."""
     tools = [search_database, generate_report, send_email]
 
+    system_prompt = """
+    Act as a business analyst.
+    """
     prompt = """
     Find the top 5 revenue users, create a text report, and email it to
     team@example.com with subject "Revenue Report"
     """
 
-    async with Shadai(name="test") as shadai:
+    async with Shadai(
+        name="test",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
+        system_prompt=system_prompt,
+    ) as shadai:
         async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
+        print("\n")
 
 
 @timed
@@ -348,6 +358,10 @@ async def market_analysis_example() -> None:
         get_trend_analysis,
     ]
 
+    system_prompt = """
+    Act as a business analyst.
+    """
+
     prompt = """
     I need a comprehensive market analysis for AI software. Include the current
     market size and growth, what customers are saying, how we compare to competitors
@@ -355,9 +369,15 @@ async def market_analysis_example() -> None:
     insights for strategy planning.
     """
 
-    async with Shadai(name="test") as shadai:
+    async with Shadai(
+        name="test",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
+        system_prompt=system_prompt,
+    ) as shadai:
         async for chunk in shadai.agent(prompt=prompt, tools=tools):
             print(chunk, end="", flush=True)
+        print("\n")
 
 
 async def main() -> None:

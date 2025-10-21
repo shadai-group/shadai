@@ -76,6 +76,21 @@ async with Shadai(name="docs") as shadai:
 ```
 → [Document Q&A Guide](use-cases/document-qa.md)
 
+**Choose specific AI models** ✨ NEW
+```python
+from shadai import Shadai, LLMModel, EmbeddingModel
+
+async with Shadai(
+    name="premium-analysis",
+    llm_model=LLMModel.OPENAI_GPT_4O,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE,
+    system_prompt="You are an expert analyst."
+) as shadai:
+    async for chunk in shadai.query("Detailed analysis"):
+        print(chunk, end="")
+```
+→ [Model Selection Guide](guides/session-management.md#model-configuration)
+
 **Build a chatbot**
 ```python
 async with Shadai(name="chat") as shadai:
@@ -183,7 +198,14 @@ async with Shadai(name="analysis") as shadai:
 - 🐛 **Issues**: [GitHub Issues](https://github.com/shadai/shadai-client/issues)
 - 📖 **API Reference**: [Complete API Docs](api-reference/shadai-client.md)
 
-## 🆕 What's New in v0.1.29
+## 🆕 What's New in v0.1.31
+
+- **🎯 Model Selection** - Choose from 31 LLM models and 5 embedding models across OpenAI, Azure, Anthropic (Claude), and Google (Gemini)
+- **⚡ Automatic Error Handling** - Clean, user-friendly error messages without verbose tracebacks
+- **🎨 System Prompts** - Customize your session's behavior with custom system prompts
+- **🔧 Provider Flexibility** - Mix and match providers (e.g., Google LLM + OpenAI embeddings)
+
+### Previous Release (v0.1.29)
 
 - **🧠 Memory Enabled by Default** - All tools now use conversation memory automatically
 - **💬 Chat History Management** - New methods to retrieve and clear session history

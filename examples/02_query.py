@@ -10,7 +10,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shadai import Shadai
+from shadai import EmbeddingModel, LLMModel, Shadai
 from shadai.timing import timed
 
 
@@ -18,7 +18,16 @@ from shadai.timing import timed
 async def main() -> None:
     query = "De qué habla la quinta enmienda?"
 
-    async with Shadai(name="test") as shadai:
+    system_prompt = """
+    Actua como un experto en el area de leyes y creatividad digital.
+    """
+
+    async with Shadai(
+        name="test",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
+        system_prompt=system_prompt,
+    ) as shadai:
         async for chunk in shadai.query(query=query):
             print(chunk, end="", flush=True)
 

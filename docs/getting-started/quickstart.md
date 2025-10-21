@@ -111,18 +111,66 @@ async with Shadai(name="research") as shadai:
         print(chunk, end="")
 ```
 
+## Model Selection
+
+Choose specific AI models for your session:
+
+```python
+from shadai import Shadai, LLMModel, EmbeddingModel
+
+# Use Google models (fast and cost-effective)
+async with Shadai(
+    name="quick-analysis",
+    llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+    embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001
+) as shadai:
+    async for chunk in shadai.query("Quick question"):
+        print(chunk, end="")
+
+# Use OpenAI GPT-4o (premium quality)
+async with Shadai(
+    name="detailed-analysis",
+    llm_model=LLMModel.OPENAI_GPT_4O,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_LARGE
+) as shadai:
+    async for chunk in shadai.query("Complex analysis"):
+        print(chunk, end="")
+
+# Use Claude (excellent for creative tasks)
+async with Shadai(
+    name="creative-writing",
+    llm_model=LLMModel.ANTHROPIC_CLAUDE_SONNET_4_5,
+    embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
+    system_prompt="You are a creative writing assistant."
+) as shadai:
+    async for chunk in shadai.query("Write a story about AI"):
+        print(chunk, end="")
+```
+
+**Available Models:**
+- **31 LLM models**: OpenAI, Azure, Anthropic (Claude), Google (Gemini)
+- **5 embedding models**: OpenAI, Azure, Google
+
+[See complete model list →](../api-reference/shadai-client.md#model-selection)
+
 ## Complete Example
 
-Here's a realistic workflow:
+Here's a realistic workflow with model selection:
 
 ```python
 import asyncio
-from shadai import Shadai
+from shadai import Shadai, LLMModel, EmbeddingModel
 
 async def analyze_market_research():
     """Analyze market research documents and compare with current trends."""
 
-    async with Shadai(name="market-analysis") as shadai:
+    # Use Google models for fast, cost-effective analysis
+    async with Shadai(
+        name="market-analysis",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
+        system_prompt="You are a market research analyst."
+    ) as shadai:
         print("📥 Ingesting documents...")
         results = await shadai.ingest(folder_path="./market-reports")
         print(f"✅ Processed {results['successful_count']} documents\n")

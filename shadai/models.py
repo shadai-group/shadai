@@ -5,10 +5,83 @@ Pydantic models for type-safe tool definitions and agent configuration.
 """
 
 import inspect
+from enum import Enum
 from typing import Any, Callable, Dict, Optional, Union
 
 from langchain_core.tools.base import create_schema_from_function
 from pydantic import BaseModel, Field
+
+
+class LLMModel(str, Enum):
+    """Available LLM models with provider:model format."""
+
+    # OpenAI Models
+    OPENAI_GPT_5 = "openai:gpt-5"
+    OPENAI_GPT_5_MINI = "openai:gpt-5-mini"
+    OPENAI_GPT_5_NANO = "openai:gpt-5-nano"
+    OPENAI_GPT_4_1 = "openai:gpt-4.1"
+    OPENAI_GPT_4_1_MINI = "openai:gpt-4.1-mini"
+    OPENAI_GPT_4O = "openai:gpt-4o"
+    OPENAI_GPT_4O_MINI = "openai:gpt-4o-mini"
+
+    # Azure Models
+    AZURE_GPT_5 = "azure:gpt-5"
+    AZURE_GPT_5_MINI = "azure:gpt-5-mini"
+    AZURE_GPT_5_NANO = "azure:gpt-5-nano"
+    AZURE_GPT_4_1 = "azure:gpt-4.1"
+    AZURE_GPT_4_1_MINI = "azure:gpt-4.1-mini"
+    AZURE_GPT_4O = "azure:gpt-4o"
+    AZURE_GPT_4O_MINI = "azure:gpt-4o-mini"
+
+    # Anthropic Models
+    ANTHROPIC_CLAUDE_SONNET_4_5 = "anthropic:claude-sonnet-4-5-20250929"
+    ANTHROPIC_CLAUDE_SONNET_4 = "anthropic:claude-sonnet-4-20250514"
+    ANTHROPIC_CLAUDE_3_7_SONNET = "anthropic:claude-3-7-sonnet-latest"
+    ANTHROPIC_CLAUDE_OPUS_4_1 = "anthropic:claude-opus-4-1-20250805"
+    ANTHROPIC_CLAUDE_OPUS_4 = "anthropic:claude-opus-4-20250514"
+    ANTHROPIC_CLAUDE_3_5_HAIKU = "anthropic:claude-3-5-haiku-latest"
+
+    # Google Models
+    GOOGLE_GEMINI_2_5_PRO = "google_genai:gemini-2.5-pro"
+    GOOGLE_GEMINI_2_5_FLASH = "google_genai:gemini-2.5-flash"
+    GOOGLE_GEMINI_2_5_FLASH_LITE = "google_genai:gemini-2.5-flash-lite"
+    GOOGLE_GEMINI_2_0_FLASH = "google_genai:gemini-2.0-flash"
+    GOOGLE_GEMINI_2_0_FLASH_LITE = "google_genai:gemini-2.0-flash-lite"
+
+    @property
+    def provider(self) -> str:
+        """Extract provider from model string."""
+        return self.value.split(":")[0]
+
+    @property
+    def model(self) -> str:
+        """Extract model name from model string."""
+        return self.value.split(":")[1]
+
+
+class EmbeddingModel(str, Enum):
+    """Available embedding models with provider:model format."""
+
+    # OpenAI Embeddings
+    OPENAI_TEXT_EMBEDDING_3_LARGE = "openai:text-embedding-3-large"
+    OPENAI_TEXT_EMBEDDING_3_SMALL = "openai:text-embedding-3-small"
+
+    # Azure Embeddings
+    AZURE_TEXT_EMBEDDING_3_LARGE = "azure:text-embedding-3-large"
+    AZURE_TEXT_EMBEDDING_3_SMALL = "azure:text-embedding-3-small"
+
+    # Google Embeddings
+    GOOGLE_GEMINI_EMBEDDING_001 = "google_genai:gemini-embedding-001"
+
+    @property
+    def provider(self) -> str:
+        """Extract provider from model string."""
+        return self.value.split(":")[0]
+
+    @property
+    def model(self) -> str:
+        """Extract model name from model string."""
+        return self.value.split(":")[1]
 
 
 class ToolDefinition(BaseModel):
