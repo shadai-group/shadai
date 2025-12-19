@@ -84,6 +84,18 @@ class EmbeddingModel(str, Enum):
         return self.value.split(":")[1]
 
 
+class LanguageCode(str, Enum):
+    """Available language codes for session responses."""
+
+    SPANISH = "es"
+    ENGLISH = "en"
+
+    @property
+    def code(self) -> str:
+        """Get language code."""
+        return self.value
+
+
 class ToolDefinition(BaseModel):
     """
     Definition of a tool for the planner.
