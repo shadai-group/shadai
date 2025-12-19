@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Union
 
 from .client import ShadaiClient
-from .models import AgentTool, EmbeddingModel, LLMModel
+from .models import AgentTool, EmbeddingModel, LanguageCode, LLMModel
 
 if TYPE_CHECKING:
     from .session import Session
@@ -22,202 +22,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-class QueryTool:
-    """
-    Knowledge Base Query Tool.
-
-    Retrieves relevant information from uploaded documents using RAG
-    (Retrieval-Augmented Generation).
-
-    Examples:
-        >>> query = QueryTool(client=client, session_uuid="...")
-        >>> async for chunk in query("What is machine learning?"):
-        ...     print(chunk, end="", flush=True)
-    """
-
-    def __init__(self, client: ShadaiClient, session_uuid: str) -> None:
-        """
-        Initialize Query tool.
-
-        Args:
-            client: Shadai client instance
-            session_uuid: Your session UUID
-        """
-        self.client = client
-        self.session_uuid = session_uuid
-
-    async def __call__(
-        self,
-        query: str,
-        use_memory: bool = True,
-    ) -> AsyncIterator[str]:
-        """
-        Query the knowledge base with streaming response.
-
-        Args:
-            query: Your question or search query
-            use_memory: Enable conversation memory
-
-        Yields:
-            Text chunks from the knowledge base
-
-        Examples:
-            >>> async for chunk in query_tool("Explain transformers"):
-            ...     print(chunk, end="")
-        """
-        async for chunk in self.client.stream_tool(
-            tool_name="shadai_query",
-            arguments={
-                "session_uuid": self.session_uuid,
-                "query": query,
-                "use_memory": use_memory,
-            },
-        ):
-            yield chunk
-
-
-class SummarizeTool:
-    """
-    Document Summarization Tool.
-
-    Generates comprehensive summaries of all documents in a session,
-    with optional question-answering capability.
-
-    This tool supports two modes:
-    1. Direct Summary (return_direct=True): Returns consolidated summary
-    2. Question Answering (return_direct=False): Uses summary to answer a question
-
-    Examples:
-        >>> # Mode 1: Get summary directly
-        >>> summarize = SummarizeTool(client=client, session_uuid="...")
-        >>> async for chunk in summarize():
-        ...     print(chunk, end="", flush=True)
-
-        >>> # Mode 2: Ask questions about the summary
-        >>> async for chunk in summarize(
-        ...     prompt="What are the main topics?",
-        ...     return_direct=False
-        ... ):
-        ...     print(chunk, end="", flush=True)
-    """
-
-    def __init__(self, client: ShadaiClient, session_uuid: str) -> None:
-        """
-        Initialize Summarize tool.
-
-        Args:
-            client: Shadai client instance
-            session_uuid: Your session UUID
-        """
-        self.client = client
-        self.session_uuid = session_uuid
-
-    async def __call__(
-        self,
-        prompt: str | None = None,
-        return_direct: bool = True,
-        use_memory: bool = True,
-    ) -> AsyncIterator[str]:
-        """
-        Generate summary of all session documents or answer questions about them.
-
-        Args:
-            prompt: Optional question to answer using the summary (default: None)
-            return_direct: If True, return summary directly; if False, answer the prompt (default: True)
-            use_memory: Enable conversation memory (default: True)
-
-        Yields:
-            Text chunks from the summary or answer
-
-        Raises:
-            InvalidParameterError: If prompt/return_direct mutual exclusivity is violated
-
-        Examples:
-            >>> # Get summary directly (default behavior)
-            >>> async for chunk in summarize_tool():
-            ...     print(chunk, end="")
-
-            >>> # Ask a question about the summary
-            >>> async for chunk in summarize_tool(
-            ...     prompt="What are the key findings?",
-            ...     return_direct=False
-            ... ):
-            ...     print(chunk, end="")
-        """
-        async for chunk in self.client.stream_tool(
-            tool_name="shadai_summarize",
-            arguments={
-                "session_uuid": self.session_uuid,
-                "prompt": prompt,
-                "return_direct": return_direct,
-                "use_memory": use_memory,
-            },
-        ):
-            yield chunk
-
-
-class WebSearchTool:
-    """
-    Web Search Tool.
-
-    Searches the internet for current information and provides cited answers.
-
-    Examples:
-        >>> search = WebSearchTool(client=client, session_uuid="...")
-        >>> async for chunk in search("Latest AI developments 2024"):
-        ...     print(chunk, end="", flush=True)
-    """
-
-    def __init__(self, client: ShadaiClient, session_uuid: str) -> None:
-        """
-        Initialize Web Search tool.
-
-        Args:
-            client: Shadai client instance
-            session_uuid: Your session UUID
-        """
-        self.client = client
-        self.session_uuid = session_uuid
-
-    async def __call__(
-        self,
-        prompt: str,
-        use_web_search: bool = True,
-        use_memory: bool = True,
-    ) -> AsyncIterator[str]:
-        """
-        Search the web and get an answer.
-
-        Args:
-            prompt: Your question or search query
-            use_web_search: Enable web search (default: True)
-            use_memory: Enable conversation memory
-
-        Yields:
-            Text chunks from the search results
-
-        Examples:
-            >>> async for chunk in search_tool("Current weather in Paris"):
-            ...     print(chunk, end="")
-        """
-        async for chunk in self.client.stream_tool(
-            tool_name="shadai_web_search",
-            arguments={
-                "session_uuid": self.session_uuid,
-                "prompt": prompt,
-                "use_web_search": use_web_search,
-                "use_memory": use_memory,
-            },
-        ):
-            yield chunk
-
-
 class EngineTool:
     """
     Shadai Engine Tool.
 
-    Orchestrates multiple tools (knowledge base, summarization, web search)
-    to provide comprehensive answers.
+    Orchestrates multiple tools (knowledge base and web search) with built-in
+    memory and summarization capabilities.
+
+    Memory (use_memory) and summarization (use_summary) are always enabled
+    and cannot be disabled, ensuring consistent conversation context and
+    document understanding.
 
     Examples:
         >>> engine = EngineTool(client=client, session_uuid="...")
@@ -244,41 +58,68 @@ class EngineTool:
         self,
         prompt: str,
         use_knowledge_base: bool = True,
-        use_summary: bool = True,
         use_web_search: bool = True,
-        use_memory: bool = True,
+        system_prompt: Optional[str] = None,
+        response_language: Optional[Union[str, "LanguageCode"]] = None,
     ) -> AsyncIterator[str]:
         """
-        Execute engine with multiple tool capabilities.
+        Execute engine with knowledge base and web search capabilities.
+
+        Memory (use_memory) and summarization (use_summary) are always enabled
+        internally to ensure conversation context and document understanding.
 
         Args:
             prompt: Your question or prompt
-            use_knowledge_base: Enable knowledge base retrieval
-            use_summary: Enable document summarization
-            use_web_search: Enable web search
-            use_memory: Enable conversation memory
-
+            use_knowledge_base: Enable knowledge base retrieval (default: True)
+            use_web_search: Enable web search (default: True)
+            system_prompt: Optional system prompt
+            response_language: Optional language code for responses (e.g., LanguageCode.SPANISH, LanguageCode.ENGLISH)
         Yields:
             Text chunks from the engine
 
         Examples:
+            >>> # Use both knowledge base and web search
             >>> async for chunk in engine_tool(
             ...     "What are ML trends?",
             ...     use_knowledge_base=True,
             ...     use_web_search=True
             ... ):
             ...     print(chunk, end="")
+            >>>
+            >>> # Use only knowledge base
+            >>> async for chunk in engine_tool(
+            ...     "Summarize my documents",
+            ...     use_knowledge_base=True,
+            ...     use_web_search=False
+            ... ):
+            ...     print(chunk, end="")
         """
+        # Build arguments
+        arguments = {
+            "session_uuid": self.session_uuid,
+            "prompt": prompt,
+            "use_knowledge_base": use_knowledge_base,
+            "use_summary": True,  # Always enabled
+            "use_web_search": use_web_search,
+            "use_memory": True,  # Always enabled
+        }
+
+        # Add optional parameters if provided
+        if system_prompt is not None:
+            arguments["system_prompt"] = system_prompt
+
+        if response_language is not None:
+            # Convert LanguageCode enum to string if needed
+            response_lang_value = (
+                response_language.value
+                if hasattr(response_language, "value")
+                else str(response_language)
+            )
+            arguments["response_language"] = response_lang_value
+
         async for chunk in self.client.stream_tool(
             tool_name="shadai_engine",
-            arguments={
-                "session_uuid": self.session_uuid,
-                "prompt": prompt,
-                "use_knowledge_base": use_knowledge_base,
-                "use_summary": use_summary,
-                "use_web_search": use_web_search,
-                "use_memory": use_memory,
-            },
+            arguments=arguments,
         ):
             yield chunk
 
@@ -369,7 +210,7 @@ class IngestTool:
                         "size": file_size,
                         "size_mb": f"{size_mb:.2f} MB",
                         "reason": f"""
-                            File size ({size_mb:.2f} MB) exceeds maximum allowed 
+                            File size ({size_mb:.2f} MB) exceeds maximum allowed
                             size ({self.MAX_FILE_SIZE_MB} MB)
                         """,
                     }
@@ -548,6 +389,119 @@ class IngestTool:
                 ) from e
 
 
+class ExtractionTool:
+    """
+    Structured Information Extraction Tool.
+
+    Uses LangExtract to extract structured entities from documents with precise
+    source grounding. Supports processing URLs and text with few-shot examples
+    to define the extraction schema.
+
+    Examples:
+        >>> extraction = ExtractionTool(client=client, session_uuid="...", llm_model_uuid="...")
+        >>> result = await extraction(
+        ...     text_or_documents="https://example.com/invoice.pdf",
+        ...     prompt_description="Extract invoice information",
+        ...     examples=[{"text": "...", "extractions": [...]}]
+        ... )
+        >>> print(f"Found {result['extraction_count']} entities")
+    """
+
+    def __init__(
+        self,
+        client: ShadaiClient,
+        session_uuid: str,
+        llm_model_uuid: Optional[str] = None,
+    ) -> None:
+        """
+        Initialize Extraction tool.
+
+        Args:
+            client: Shadai client instance
+            session_uuid: Your session UUID
+            llm_model_uuid: Optional LLM model UUID (uses session's model if not provided)
+        """
+        self.client = client
+        self.session_uuid = session_uuid
+        self.llm_model_uuid = llm_model_uuid
+
+    async def __call__(
+        self,
+        text_or_documents: str | List[str],
+        prompt_description: str,
+        examples: List[Dict[str, Any]],
+        extraction_passes: int = 1,
+        max_workers: int = 10,
+        max_char_buffer: int = 10000,
+        use_schema_constraints: bool = False,
+        generate_visualization: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Extract structured information from documents.
+
+        Args:
+            text_or_documents: Text or URL(s) to process (supports Google Drive, web URLs)
+            prompt_description: Clear description of what to extract
+            examples: List of few-shot examples defining the extraction schema
+            extraction_passes: Number of extraction passes for higher recall (default: 1)
+            max_workers: Maximum parallel workers for long documents (default: 10)
+            max_char_buffer: Character buffer size for chunking (default: 10000).
+                Larger values = fewer chunks = faster but less precise.
+                Smaller values = more chunks = slower but more precise.
+            use_schema_constraints: Use strict schema constraints (default: False)
+            generate_visualization: Generate HTML visualization (default: False)
+
+        Returns:
+            Dictionary with extraction results:
+            - extraction_count: Number of entities extracted
+            - model_used: LLM model name used for extraction
+            - provider: LLM provider name
+            - extractions: List of extracted entities with attributes and positions
+            - metadata: Extraction configuration metadata
+            - html_visualization: Optional HTML visualization (if generate_visualization=True)
+
+        Examples:
+            >>> # Extract from URL
+            >>> result = await extraction_tool(
+            ...     text_or_documents="https://example.com/invoice.pdf",
+            ...     prompt_description="Extract invoice details",
+            ...     examples=[
+            ...         {
+            ...             "text": "Invoice #123...",
+            ...             "extractions": [
+            ...                 {
+            ...                     "extraction_class": "invoice_number",
+            ...                     "extraction_text": "123",
+            ...                     "attributes": {"field": "invoice_id"}
+            ...                 }
+            ...             ]
+            ...         }
+            ...     ],
+            ...     generate_visualization=True
+            ... )
+        """
+        arguments = {
+            "text_or_documents": text_or_documents,
+            "prompt_description": prompt_description,
+            "examples": examples,
+            "extraction_passes": extraction_passes,
+            "max_workers": max_workers,
+            "max_char_buffer": max_char_buffer,
+            "use_schema_constraints": use_schema_constraints,
+            "generate_visualization": generate_visualization,
+        }
+
+        # Add llm_model_uuid if provided
+        if self.llm_model_uuid:
+            arguments["llm_model_uuid"] = self.llm_model_uuid
+
+        result = await self.client.call_tool(
+            tool_name="shadai_extract",
+            arguments=arguments,
+        )
+        return json.loads(result)
+
+
 class _AgentOrchestrator:
     """
     Internal orchestrator for Shadai Agent workflow.
@@ -722,6 +676,7 @@ class Shadai:
         base_url: str = "http://localhost",
         timeout: int = 30,
         system_prompt: Optional[str] = None,
+        response_language: Optional[Union[str, "LanguageCode"]] = None,
     ) -> None:
         """
         Initialize Shadai client with session management.
@@ -735,9 +690,10 @@ class Shadai:
             system_prompt: Optional system prompt for the session
             llm_model: Optional LLM model (e.g., LLMModel.OPENAI_GPT_4O_MINI)
             embedding_model: Optional embedding model (e.g., EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL)
+            response_language: Optional language code for responses (e.g., LanguageCode.SPANISH, LanguageCode.ENGLISH)
 
         Examples:
-            >>> from shadai import Shadai, LLMModel, EmbeddingModel
+            >>> from shadai import Shadai, LLMModel, EmbeddingModel, LanguageCode
             >>>
             >>> # Use existing session
             >>> async with Shadai(name="my-session") as shadai:
@@ -749,12 +705,13 @@ class Shadai:
             ...     async for chunk in shadai.query(query="What is AI?"):
             ...         print(chunk, end="")
             >>>
-            >>> # Create session with custom models
+            >>> # Create session with custom models and language
             >>> async with Shadai(
             ...     name="my-session",
             ...     llm_model=LLMModel.OPENAI_GPT_4O_MINI,
             ...     embedding_model=EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
-            ...     system_prompt="You are a helpful assistant."
+            ...     system_prompt="You are a helpful assistant.",
+            ...     response_language=LanguageCode.ENGLISH
             ... ) as shadai:
             ...     async for chunk in shadai.query(query="Hello!"):
             ...         print(chunk, end="")
@@ -774,6 +731,7 @@ class Shadai:
         self._system_prompt = system_prompt
         self._llm_model = llm_model
         self._embedding_model = embedding_model
+        self._response_language = response_language
         self._session: Optional["Session"] = None
 
     async def __aenter__(self) -> "Shadai":
@@ -791,6 +749,7 @@ class Shadai:
             system_prompt=self._system_prompt,
             llm_model=self._llm_model,
             embedding_model=self._embedding_model,
+            response_language=self._response_language,
         )
         await self._session.__aenter__()
         return self
@@ -833,143 +792,49 @@ class Shadai:
         """
         return await self.client.list_tools()
 
-    async def query(
-        self,
-        query: str,
-        use_memory: bool = True,
-    ) -> AsyncIterator[str]:
-        """
-        Query the knowledge base with streaming response.
-
-        Args:
-            query: Your question or search query
-            use_memory: Enable conversation memory
-
-        Yields:
-            Text chunks from the knowledge base
-
-        Examples:
-            >>> async with Shadai(name="my-session") as shadai:
-            ...     async for chunk in shadai.query(query="What is ML?"):
-            ...         print(chunk, end="")
-        """
-        if not self._session:
-            raise ValueError("Shadai must be used as a context manager")
-
-        query_tool = QueryTool(client=self.client, session_uuid=self._session.uuid)
-        async for chunk in query_tool(query=query, use_memory=use_memory):
-            yield chunk
-
-    async def summarize(
-        self,
-        prompt: str | None = None,
-        return_direct: bool = True,
-        use_memory: bool = True,
-    ) -> AsyncIterator[str]:
-        """
-        Generate summary of all session documents or answer questions about them.
-
-        This method supports two modes:
-        1. Direct Summary (return_direct=True): Returns consolidated summary
-        2. Question Answering (return_direct=False): Uses summary to answer a question
-
-        Args:
-            prompt: Optional question to answer using the summary (default: None)
-            return_direct: If True, return summary directly; if False, answer the prompt (default: True)
-            use_memory: Enable conversation memory (default: True)
-
-        Yields:
-            Text chunks from the summary or answer
-
-        Raises:
-            InvalidParameterError: If prompt/return_direct mutual exclusivity is violated
-
-        Examples:
-            >>> # Mode 1: Get summary directly (default)
-            >>> async with Shadai(name="my-session") as shadai:
-            ...     async for chunk in shadai.summarize():
-            ...         print(chunk, end="")
-
-            >>> # Mode 2: Ask questions about the summary
-            >>> async with Shadai(name="my-session") as shadai:
-            ...     async for chunk in shadai.summarize(
-            ...         prompt="What are the main topics?",
-            ...         return_direct=False
-            ...     ):
-            ...         print(chunk, end="")
-        """
-        if not self._session:
-            raise ValueError("Shadai must be used as a context manager")
-
-        summarize_tool = SummarizeTool(
-            client=self.client, session_uuid=self._session.uuid
-        )
-        async for chunk in summarize_tool(
-            prompt=prompt,
-            return_direct=return_direct,
-            use_memory=use_memory,
-        ):
-            yield chunk
-
-    async def web_search(
-        self,
-        prompt: str,
-        use_web_search: bool = True,
-        use_memory: bool = True,
-    ) -> AsyncIterator[str]:
-        """
-        Search the web and get an answer.
-
-        Args:
-            prompt: Your question or search query
-            use_web_search: Enable web search (default: True)
-            use_memory: Enable conversation memory
-
-        Yields:
-            Text chunks from the search results
-
-        Examples:
-            >>> async with Shadai(name="my-session") as shadai:
-            ...     async for chunk in shadai.web_search(prompt="Latest AI news"):
-            ...         print(chunk, end="")
-        """
-        if not self._session:
-            raise ValueError("Shadai must be used as a context manager")
-
-        search_tool = WebSearchTool(client=self.client, session_uuid=self._session.uuid)
-        async for chunk in search_tool(
-            prompt=prompt,
-            use_web_search=use_web_search,
-            use_memory=use_memory,
-        ):
-            yield chunk
-
     async def engine(
         self,
         prompt: str,
-        use_knowledge_base: bool = True,
-        use_summary: bool = True,
-        use_web_search: bool = True,
-        use_memory: bool = True,
+        use_knowledge_base: bool = False,
+        use_web_search: bool = False,
+        system_prompt: Optional[str] = None,
+        response_language: Optional[Union[str, "LanguageCode"]] = None,
     ) -> AsyncIterator[str]:
         """
-        Execute unified engine with multiple tool capabilities.
+        Execute unified engine with knowledge base and web search capabilities.
+
+        Memory (use_memory) and summarization (use_summary) are always enabled
+        internally to ensure conversation context and document understanding.
 
         Args:
             prompt: Your question or prompt
-            use_knowledge_base: Enable knowledge base retrieval
-            use_summary: Enable document summarization
-            use_web_search: Enable web search
-            use_memory: Enable conversation memory
-
+            use_knowledge_base: Enable knowledge base retrieval (default: False)
+            use_web_search: Enable web search (default: False)
+            system_prompt: Optional system prompt
+            response_language: Optional language code for responses (e.g., LanguageCode.SPANISH, LanguageCode.ENGLISH)
         Yields:
             Text chunks from the engine
 
         Examples:
+            >>> # Use both knowledge base and web search
             >>> async with Shadai(name="my-session") as shadai:
             ...     async for chunk in shadai.engine(
-            ...         prompt="Analyze my docs",
-            ...         use_knowledge_base=True
+            ...         prompt="Analyze my docs and compare with current trends",
+            ...         use_knowledge_base=False,
+            ...         use_web_search=False,
+            ...         system_prompt="You are a helpful assistant.",
+            ...         response_language=LanguageCode.ENGLISH
+            ...     ):
+            ...         print(chunk, end="")
+            >>>
+            >>> # Use only knowledge base
+            >>> async with Shadai(name="my-session") as shadai:
+            ...     async for chunk in shadai.engine(
+            ...         prompt="Summarize my documents",
+            ...         use_knowledge_base=False,
+            ...         use_web_search=False,
+            ...         system_prompt="You are a helpful assistant.",
+            ...         response_language=LanguageCode.ENGLISH
             ...     ):
             ...         print(chunk, end="")
         """
@@ -980,9 +845,9 @@ class Shadai:
         async for chunk in engine_tool(
             prompt=prompt,
             use_knowledge_base=use_knowledge_base,
-            use_summary=use_summary,
             use_web_search=use_web_search,
-            use_memory=use_memory,
+            system_prompt=system_prompt,
+            response_language=response_language,
         ):
             yield chunk
 
@@ -1077,3 +942,100 @@ class Shadai:
 
         ingest_tool = IngestTool(client=self.client, session_uuid=self._session.uuid)
         return await ingest_tool(folder_path=folder_path)
+
+    async def extract(
+        self,
+        text_or_documents: str | List[str],
+        prompt_description: str,
+        examples: List[Dict[str, Any]],
+        extraction_passes: int = 1,
+        max_workers: int = 10,
+        max_char_buffer: int = 10000,
+        use_schema_constraints: bool = False,
+        generate_visualization: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Extract structured information from documents using LangExtract.
+
+        Uses few-shot examples to define extraction schema and extracts entities
+        with precise source grounding (character positions). Supports processing
+        URLs (including Google Drive) and text documents.
+
+        Args:
+            text_or_documents: Text or URL(s) to process
+            prompt_description: Clear description of what to extract
+            examples: List of few-shot examples defining the extraction schema.
+                Each example should have:
+                - "text": Sample text
+                - "extractions": List of entity extractions with:
+                    - "extraction_class": Entity type (e.g., "invoice_number")
+                    - "extraction_text": Exact text to extract
+                    - "attributes": Optional dict of entity attributes
+            extraction_passes: Number of extraction passes for higher recall (default: 1)
+            max_workers: Maximum parallel workers for long documents (default: 10)
+            max_char_buffer: Character buffer size for chunking (default: 10000).
+                Larger values = fewer chunks = faster but less precise.
+                Smaller values = more chunks = slower but more precise.
+            use_schema_constraints: Use strict schema constraints (default: False)
+            generate_visualization: Generate HTML visualization (default: False)
+
+        Returns:
+            Dictionary with extraction results:
+            - extraction_count: Number of entities extracted
+            - model_used: LLM model name used for extraction
+            - provider: LLM provider name
+            - extractions: List of extracted entities with:
+                - extraction_class: Entity type
+                - extraction_text: Extracted text
+                - attributes: Entity attributes
+                - start_char: Starting character position
+                - end_char: Ending character position
+            - metadata: Extraction configuration metadata
+            - html_visualization: Optional HTML with highlighted extractions
+
+        Examples:
+            >>> # Extract invoice information
+            >>> async with Shadai(name="invoice-processing") as shadai:
+            ...     result = await shadai.extract(
+            ...         text_or_documents="https://example.com/invoice.pdf",
+            ...         prompt_description="Extract invoice details",
+            ...         examples=[
+            ...             {
+            ...                 "text": "Invoice #INV-001 dated 2024-01-15...",
+            ...                 "extractions": [
+            ...                     {
+            ...                         "extraction_class": "invoice_number",
+            ...                         "extraction_text": "INV-001",
+            ...                         "attributes": {"field": "invoice_id"}
+            ...                     },
+            ...                     {
+            ...                         "extraction_class": "date",
+            ...                         "extraction_text": "2024-01-15",
+            ...                         "attributes": {"field": "invoice_date"}
+            ...                     }
+            ...                 ]
+            ...             }
+            ...         ],
+            ...         extraction_passes=2,
+            ...         generate_visualization=True
+            ...     )
+            ...     print(f"Extracted {result['extraction_count']} entities")
+        """
+        if not self._session:
+            raise ValueError("Shadai must be used as a context manager")
+
+        extraction_tool = ExtractionTool(
+            client=self.client,
+            session_uuid=self._session.uuid,
+            llm_model_uuid=self._session.llm_model_uuid,
+        )
+        return await extraction_tool(
+            text_or_documents=text_or_documents,
+            prompt_description=prompt_description,
+            examples=examples,
+            extraction_passes=extraction_passes,
+            max_workers=max_workers,
+            max_char_buffer=max_char_buffer,
+            use_schema_constraints=use_schema_constraints,
+            generate_visualization=generate_visualization,
+        )

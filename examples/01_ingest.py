@@ -21,8 +21,8 @@ async def main() -> None:
     input_dir = os.path.join(os.path.dirname(__file__), "data")
 
     async with Shadai(
-        name="test",
-        llm_model=LLMModel.GOOGLE_GEMINI_2_0_FLASH,
+        name="new-session",
+        llm_model=LLMModel.GOOGLE_GEMINI_2_5_PRO,
         embedding_model=EmbeddingModel.GOOGLE_GEMINI_EMBEDDING_001,
     ) as shadai:
         await shadai.ingest(folder_path=input_dir)

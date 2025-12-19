@@ -14,12 +14,24 @@ Quick Start:
     >>>
     >>> # Query knowledge base with session management
     >>> async with Shadai(name="my-session") as shadai:
-    ...     async for chunk in shadai.query(query="What is machine learning?"):
+    ...     async for chunk in shadai.engine(
+    ...         prompt="What is machine learning?",
+    ...         use_knowledge_base=True,
+    ...         use_web_search=False
+    ...     ):
     ...         print(chunk, end="", flush=True)
+    >>>
+    >>> # Extract structured information from documents
+    >>> async with Shadai(name="my-session") as shadai:
+    ...     result = await shadai.extract(
+    ...         text_or_documents="https://example.com/invoice.pdf",
+    ...         prompt_description="Extract invoice details",
+    ...         examples=[{"text": "...", "extractions": [...]}]
+    ...     )
     >>>
     >>> # Create temporal session (auto-deleted)
     >>> async with Shadai(temporal=True) as shadai:
-    ...     async for chunk in shadai.query(query="What is AI?"):
+    ...     async for chunk in shadai.engine(prompt="What is AI?"):
     ...         print(chunk, end="", flush=True)
     >>>
     >>> # Define tools with automatic schema inference
@@ -46,6 +58,7 @@ GitHub: https://github.com/shadai/shadai-client
 """
 
 from .__version__ import __author__, __description__, __version__
+from .async_job import AsyncJob
 from .client import ShadaiClient
 from .error_handler import install_exception_handler
 from .exceptions import (
@@ -86,6 +99,7 @@ from .exceptions import (
 from .models import (
     AgentTool,
     EmbeddingModel,
+    LanguageCode,
     LLMModel,
     Tool,
     ToolDefinition,
@@ -94,11 +108,13 @@ from .models import (
 )
 from .tools import (
     EngineTool,
+    ExtractionTool,
     IngestTool,
-    QueryTool,
     Shadai,
-    SummarizeTool,
-    WebSearchTool,
+)
+from .types import (
+    DeepAgentJobMetadata,
+    DeepAgentJobResult,
 )
 
 __all__ = [
@@ -106,12 +122,12 @@ __all__ = [
     "Shadai",
     # Low-level client
     "ShadaiClient",
+    # Async job management
+    "AsyncJob",
     # Tool classes
-    "QueryTool",
-    "SummarizeTool",
-    "WebSearchTool",
     "EngineTool",
     "IngestTool",
+    "ExtractionTool",
     "AgentTool",
     # Tool utilities
     "tool",
@@ -121,6 +137,10 @@ __all__ = [
     "ToolRegistry",
     "LLMModel",
     "EmbeddingModel",
+    "LanguageCode",
+    # Types
+    "DeepAgentJobResult",
+    "DeepAgentJobMetadata",
     # Exceptions - Base
     "ShadaiError",
     # Exceptions - Connection & Auth
