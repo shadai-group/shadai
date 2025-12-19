@@ -41,7 +41,7 @@ class ShadaiClient:
         self,
         api_key: Optional[str] = None,
         base_url: str = "http://localhost",
-        timeout: int = 30,
+        timeout: int = 600,
     ) -> None:
         """
         Initialize Shadai client.
@@ -308,7 +308,7 @@ class ShadaiClient:
             "id": 1,
         }
 
-        timeout = aiohttp.ClientTimeout(total=None, sock_read=30)
+        timeout = aiohttp.ClientTimeout(total=None, sock_read=600)
 
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:

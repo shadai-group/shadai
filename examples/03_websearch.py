@@ -29,7 +29,11 @@ async def main() -> None:
         system_prompt=system_prompt,
         temporal=True,
     ) as shadai:
-        async for chunk in shadai.web_search(prompt=prompt, use_memory=False):
+        async for chunk in shadai.engine(
+            prompt=prompt,
+            use_knowledge_base=False,
+            use_web_search=True,
+        ):
             print(chunk, end="", flush=True)
         print("\n")
 

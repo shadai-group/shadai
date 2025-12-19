@@ -9,7 +9,7 @@ from typing import Optional, Union
 from uuid import uuid4
 
 from .client import ShadaiClient
-from .models import EmbeddingModel, LLMModel
+from .models import EmbeddingModel, LanguageCode, LLMModel
 
 
 class Session:
@@ -24,6 +24,7 @@ class Session:
         system_prompt: Optional system prompt for the session
         llm_model: Optional LLM model enum (e.g., LLMModel.OPENAI_GPT_4O_MINI)
         embedding_model: Optional embedding model enum (e.g., EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL)
+        response_language: Optional language code for responses (e.g., LanguageCode.SPANISH, LanguageCode.ENGLISH)
     """
 
     def __init__(
@@ -34,6 +35,7 @@ class Session:
         system_prompt: Optional[str] = None,
         llm_model: Optional[Union[str, "LLMModel"]] = None,
         embedding_model: Optional[Union[str, "EmbeddingModel"]] = None,
+        response_language: Optional[Union[str, "LanguageCode"]] = None,
     ) -> None:
         """Initialize session context manager.
 
@@ -44,6 +46,7 @@ class Session:
             system_prompt: Optional system prompt
             llm_model: Optional LLM model
             embedding_model: Optional embedding model
+            response_language: Optional language code for responses (e.g., "es", "en")
         """
         if not client:
             raise ValueError("ShadaiClient instance is required")
@@ -54,6 +57,7 @@ class Session:
         self._system_prompt = system_prompt
         self._llm_model = llm_model
         self._embedding_model = embedding_model
+        self._response_language = response_language
         self._session_data: Optional[dict] = None
 
     @property
@@ -65,6 +69,22 @@ class Session:
     def name(self) -> Optional[str]:
         """Get session name."""
         return self._session_data.get("name") if self._session_data else None
+
+    @property
+    def llm_model_uuid(self) -> Optional[str]:
+        """Get LLM model UUID if configured."""
+        if not self._session_data:
+            return None
+        # Session data has flat structure: {"llm_model_uuid": "..."}
+        return self._session_data.get("llm_model_uuid")
+
+    @property
+    def embedding_uuid(self) -> Optional[str]:
+        """Get embedding model UUID if configured."""
+        if not self._session_data:
+            return None
+        # Session data has flat structure: {"embedding_uuid": "..."}
+        return self._session_data.get("embedding_uuid")
 
     async def __aenter__(self) -> "Session":
         """Enter context: create or retrieve session.
@@ -83,6 +103,13 @@ class Session:
             create_args["name"] = self._name
             if self._system_prompt:
                 create_args["system_prompt"] = self._system_prompt
+            if self._response_language:
+                response_lang_value = (
+                    self._response_language.value
+                    if hasattr(self._response_language, "value")
+                    else str(self._response_language)
+                )
+                create_args["response_language"] = response_lang_value
 
             result = await self._client.call_tool(
                 tool_name="session_get_or_create",
@@ -95,6 +122,13 @@ class Session:
             create_args["name"] = generated_name
             if self._system_prompt:
                 create_args["system_prompt"] = self._system_prompt
+            if self._response_language:
+                response_lang_value = (
+                    self._response_language.value
+                    if hasattr(self._response_language, "value")
+                    else str(self._response_language)
+                )
+                create_args["response_language"] = response_lang_value
 
             result = await self._client.call_tool(
                 tool_name="session_create",
