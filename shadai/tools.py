@@ -7,17 +7,22 @@ Beautiful, Pythonic interfaces for Shadai AI tools.
 import asyncio
 import base64
 import json
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Union
 
+from dotenv import load_dotenv
+
+from .analyzers import IngestionErrorAnalyzer, IngestionErrorType
 from .client import ShadaiClient
+from .exceptions import IngestionFailedError
 from .models import AgentTool, EmbeddingModel, LanguageCode, LLMModel
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .session import Session
-
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -131,10 +136,16 @@ class IngestTool:
     Recursively processes all PDF and image files in a folder, uploading them
     to a RAG session for knowledge base ingestion. Supports nested folder structures.
 
+    Provides intelligent error detection and clear feedback when ingestion fails
+    due to plan limits (knowledge points, file size) or configuration issues.
+
     Examples:
         >>> ingest_tool = IngestTool(client=client, session_uuid="...")
         >>> results = await ingest_tool("/path/to/documents")
         >>> print(f"Processed {len(results['successful'])} files")
+
+    Raises:
+        IngestionFailedError: When all files fail due to plan limits or configuration
     """
 
     SUPPORTED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".webp"}
@@ -153,9 +164,13 @@ class IngestTool:
         """
         self.client = client
         self.session_uuid = session_uuid
+        self._error_analyzer = IngestionErrorAnalyzer()
 
     async def __call__(
-        self, folder_path: str, max_concurrent: int = 5
+        self,
+        folder_path: str,
+        max_concurrent: int = 5,
+        raise_on_complete_failure: bool = True,
     ) -> Dict[str, Any]:
         """
         Ingest all PDF and image files in a folder (including nested folders).
@@ -163,17 +178,36 @@ class IngestTool:
         Args:
             folder_path: Path to the folder containing files to process
             max_concurrent: Maximum number of concurrent file uploads (default: 5)
+            raise_on_complete_failure: If True, raises IngestionFailedError when all
+                files fail due to plan limits (default: True). Set to False to get
+                the results dict even on complete failure.
 
         Returns:
-            Dictionary with successful uploads, failed uploads, and statistics
+            Dictionary with successful uploads, failed uploads, and statistics:
+            - successful: List of successfully ingested files
+            - failed: List of failed files with error details
+            - skipped: List of files skipped (too large for client-side limit)
+            - total_files: Total number of files found
+            - successful_count: Number of successful uploads
+            - failed_count: Number of failed uploads
+            - skipped_count: Number of skipped files
 
         Raises:
             ValueError: If folder path doesn't exist or is not a directory
+            IngestionFailedError: When all files fail due to plan limits or
+                configuration issues (only if raise_on_complete_failure=True)
 
         Examples:
             >>> results = await ingest_tool("/path/to/docs")
             >>> print(f"Success: {len(results['successful'])}")
             >>> print(f"Failed: {len(results['failed'])}")
+
+            >>> # Handle failures gracefully
+            >>> try:
+            ...     results = await ingest_tool("/path/to/docs")
+            ... except IngestionFailedError as e:
+            ...     print(f"Ingestion failed: {e.message}")
+            ...     print(f"Suggestion: {e.suggestion}")
         """
         folder = Path(folder_path)
 
@@ -209,10 +243,10 @@ class IngestTool:
                         "filename": file_path.name,
                         "size": file_size,
                         "size_mb": f"{size_mb:.2f} MB",
-                        "reason": f"""
-                            File size ({size_mb:.2f} MB) exceeds maximum allowed
-                            size ({self.MAX_FILE_SIZE_MB} MB)
-                        """,
+                        "reason": (
+                            f"File size ({size_mb:.2f} MB) exceeds maximum allowed "
+                            f"size ({self.MAX_FILE_SIZE_MB} MB)"
+                        ),
                     }
                 )
             else:
@@ -225,7 +259,67 @@ class IngestTool:
         results["skipped_count"] = len(skipped_files)
         results["total_files"] = len(files_to_process)
 
+        # Analyze results for complete failures
+        if raise_on_complete_failure:
+            self._check_for_critical_failures(results=results)
+
+        # Log warnings if present (from server-side analysis)
+        warnings = results.get("warnings", [])
+        if warnings:
+            for warning in warnings:
+                if warning.get("severity") == "error":
+                    # These are already handled by _check_for_critical_failures
+                    pass
+                else:
+                    # Log non-critical warnings for visibility
+                    logger.warning(
+                        f"Ingestion warning [{warning.get('type')}]: "
+                        f"{warning.get('message')}"
+                    )
+
         return results
+
+    def _check_for_critical_failures(self, results: Dict[str, Any]) -> None:
+        """
+        Analyze results and raise IngestionFailedError for critical failures.
+
+        This method detects when all files failed due to systematic issues
+        (like plan limits) and raises a clear exception with actionable feedback.
+
+        Args:
+            results: Ingestion results dictionary
+
+        Raises:
+            IngestionFailedError: When all files failed due to plan limits
+        """
+        failed_files = results.get("failed", [])
+        successful_count = results.get("successful_count", 0)
+        total_files = results.get("total_files", 0)
+
+        if not failed_files:
+            return
+
+        # Use the analyzer to detect error patterns
+        analysis = self._error_analyzer.analyze(
+            failed_files=failed_files,
+            successful_count=successful_count,
+            total_files=total_files,
+        )
+
+        # Raise exception for complete failures due to known issues
+        if analysis.is_complete_failure and analysis.primary_error_type in {
+            IngestionErrorType.KNOWLEDGE_POINTS_LIMIT,
+            IngestionErrorType.FILE_SIZE_LIMIT,
+            IngestionErrorType.CONFIGURATION_ERROR,
+        }:
+            raise IngestionFailedError(
+                message=analysis.message,
+                failed_count=analysis.error_count,
+                error_type=analysis.primary_error_type.value,
+                failed_files=failed_files,
+                suggestion=analysis.suggestion,
+                context=analysis.context,
+            )
 
     def _find_files(self, folder: Path) -> List[Path]:
         """
@@ -673,7 +767,7 @@ class Shadai:
         embedding_model: Optional[Union[str, EmbeddingModel]] = None,
         temporal: bool = False,
         api_key: Optional[str] = None,
-        base_url: str = "http://localhost",
+        base_url: str = "https://apiv2.shadai.ai",
         timeout: int = 30,
         system_prompt: Optional[str] = None,
         response_language: Optional[Union[str, "LanguageCode"]] = None,
@@ -907,23 +1001,40 @@ class Shadai:
         ):
             yield chunk
 
-    async def ingest(self, folder_path: str) -> Dict[str, Any]:
+    async def ingest(
+        self,
+        folder_path: str,
+        raise_on_complete_failure: bool = True,
+    ) -> Dict[str, Any]:
         """
         Ingest all PDF and image files in a folder (including nested folders).
 
         Recursively finds all supported files and uploads them to the session
         for RAG knowledge base ingestion. Supports concurrent uploads.
 
+        Provides intelligent error detection and raises clear exceptions when
+        ingestion fails due to plan limits or configuration issues.
+
         Args:
             folder_path: Path to the folder containing files to process
+            raise_on_complete_failure: If True (default), raises IngestionFailedError
+                when all files fail due to plan limits. Set to False to always
+                return results dict even on complete failure.
 
         Returns:
             Dictionary with processing results:
             - successful: List of successfully uploaded files
             - failed: List of files that failed to upload
+            - skipped: List of files skipped (exceeding client-side size limit)
             - total_files: Total number of files processed
             - successful_count: Count of successful uploads
             - failed_count: Count of failed uploads
+            - skipped_count: Count of skipped files
+
+        Raises:
+            ValueError: If Shadai is not used as context manager
+            IngestionFailedError: When all files fail due to plan limits
+                (only if raise_on_complete_failure=True)
 
         Examples:
             >>> async with Shadai(name="my-session") as shadai:
@@ -932,16 +1043,173 @@ class Shadai:
             ...     )
             ...     print(f"Uploaded {results['successful_count']} files")
             ...     print(f"Failed {results['failed_count']} files")
-            ...
-            ...     # Show failed files
-            ...     for failed in results['failed']:
-            ...         print(f"Failed: {failed['filename']} - {failed['error']}")
+
+            >>> # Handle plan limit errors gracefully
+            >>> from shadai import IngestionFailedError
+            >>> async with Shadai(name="my-session") as shadai:
+            ...     try:
+            ...         results = await shadai.ingest("/path/to/docs")
+            ...     except IngestionFailedError as e:
+            ...         print(f"Error: {e.message}")
+            ...         print(f"Suggestion: {e.suggestion}")
         """
         if not self._session:
             raise ValueError("Shadai must be used as a context manager")
 
         ingest_tool = IngestTool(client=self.client, session_uuid=self._session.uuid)
-        return await ingest_tool(folder_path=folder_path)
+        return await ingest_tool(
+            folder_path=folder_path,
+            raise_on_complete_failure=raise_on_complete_failure,
+        )
+
+    async def get_plan_info(self) -> Dict[str, Any]:
+        """
+        Get current plan information and usage statistics.
+
+        Returns comprehensive plan details including limits, current usage,
+        and remaining quota for each resource type. Useful for checking
+        available capacity before ingesting files.
+
+        Returns:
+            Dictionary with plan information:
+            - has_plan: Whether a plan is assigned
+            - plan_name: Name of the plan (e.g., "Pro", "Enterprise")
+            - limits: Dict with knowledge_points, max_file_size_mb, max_api_calls
+            - usage: Dict with current usage and remaining quota
+            - period: Current billing period (year, month, display)
+
+        Examples:
+            >>> async with Shadai(name="my-session") as shadai:
+            ...     plan_info = await shadai.get_plan_info()
+            ...     print(f"Plan: {plan_info['plan_name']}")
+            ...     print(f"Knowledge points remaining: "
+            ...           f"{plan_info['usage']['knowledge_points']['remaining']}")
+        """
+        result = await self.client.call_tool(
+            tool_name="get_plan_info",
+            arguments={},
+        )
+        return json.loads(result)
+
+    async def validate_ingestion(
+        self,
+        folder_path: str,
+    ) -> Dict[str, Any]:
+        """
+        Pre-flight validation to check if files can be ingested within plan limits.
+
+        Scans the folder for supported files, estimates the knowledge points cost,
+        and checks against current plan limits. Use this before calling ingest()
+        to get early feedback about potential limit issues.
+
+        Args:
+            folder_path: Path to the folder containing files to validate
+
+        Returns:
+            Dictionary with validation results:
+            - can_ingest: True if all files can be ingested within limits
+            - files_count: Number of supported files found
+            - total_size_mb: Total size of files in MB
+            - estimated_knowledge_points: Estimated cost in knowledge points
+            - current_usage: Current knowledge points used this period
+            - remaining_points: Knowledge points remaining
+            - would_exceed_limit: True if ingestion would exceed limits
+            - blocking_issues: List of issues preventing ingestion (if any)
+
+        Raises:
+            ValueError: If folder path doesn't exist or is not a directory
+
+        Examples:
+            >>> async with Shadai(name="my-session") as shadai:
+            ...     validation = await shadai.validate_ingestion("/path/to/docs")
+            ...     if validation["can_ingest"]:
+            ...         results = await shadai.ingest("/path/to/docs")
+            ...     else:
+            ...         print(f"Cannot ingest: {validation['blocking_issues']}")
+        """
+        folder = Path(folder_path)
+
+        if not folder.exists():
+            raise ValueError(f"Folder does not exist: {folder_path}")
+
+        if not folder.is_dir():
+            raise ValueError(f"Path is not a directory: {folder_path}")
+
+        # Find all supported files
+        supported_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".webp"}
+        files = []
+        for item in folder.rglob("*"):
+            if item.is_file() and item.suffix.lower() in supported_extensions:
+                files.append(item)
+
+        if not files:
+            return {
+                "can_ingest": True,
+                "files_count": 0,
+                "total_size_mb": 0,
+                "estimated_knowledge_points": 0,
+                "message": "No supported files found in folder",
+                "blocking_issues": [],
+            }
+
+        # Get file sizes
+        file_sizes = [f.stat().st_size for f in files]
+        total_size = sum(file_sizes)
+        total_size_mb = total_size / (1024 * 1024)
+
+        # Check for files exceeding client-side limit (35 MB)
+        max_file_size_bytes = 35 * 1024 * 1024
+        oversized_files = [
+            {"filename": f.name, "size_mb": f.stat().st_size / (1024 * 1024)}
+            for f in files
+            if f.stat().st_size > max_file_size_bytes
+        ]
+
+        # Get server-side estimation
+        result = await self.client.call_tool(
+            tool_name="estimate_ingestion_cost",
+            arguments={"file_sizes_bytes": file_sizes},
+        )
+        estimation = json.loads(result)
+
+        # Build blocking issues list
+        blocking_issues = []
+
+        if oversized_files:
+            blocking_issues.append(
+                {
+                    "type": "client_file_size_limit",
+                    "message": f"{len(oversized_files)} file(s) exceed the 35 MB client limit",
+                    "files": oversized_files,
+                }
+            )
+
+        if estimation.get("would_exceed_limit"):
+            blocking_issues.append(
+                {
+                    "type": "knowledge_points_limit",
+                    "message": estimation.get(
+                        "message", "Would exceed knowledge points limit"
+                    ),
+                    "suggestion": estimation.get("suggestion"),
+                }
+            )
+
+        return {
+            "can_ingest": len(blocking_issues) == 0,
+            "files_count": len(files),
+            "total_size_bytes": total_size,
+            "total_size_mb": round(total_size_mb, 2),
+            "estimated_knowledge_points": estimation.get(
+                "estimated_knowledge_points", 0
+            ),
+            "current_usage": estimation.get("current_usage", 0),
+            "remaining_points": estimation.get("remaining_points", 0),
+            "points_after_ingestion": estimation.get("points_after_ingestion", 0),
+            "would_exceed_limit": estimation.get("would_exceed_limit", False),
+            "blocking_issues": blocking_issues,
+            "oversized_files": oversized_files,
+        }
 
     async def extract(
         self,

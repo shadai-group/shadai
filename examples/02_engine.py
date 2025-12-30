@@ -15,7 +15,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shadai import EmbeddingModel, LanguageCode, LLMModel, Shadai
+from shadai import EmbeddingModel, LLMModel, Shadai
 from shadai.timing import timed
 
 
@@ -41,7 +41,6 @@ async def main() -> None:
             use_knowledge_base=True,
             use_web_search=False,
             system_prompt=system_prompt,
-            response_language=LanguageCode.ENGLISH,
         ):
             print(chunk, end="", flush=True)
         print("\n")

@@ -190,7 +190,7 @@ The agent automatically:
 
 ```bash
 export SHADAI_API_KEY="your-api-key"
-export SHADAI_BASE_URL="http://localhost"  # Optional
+export SHADAI_BASE_URL="https://apiv2.shadai.ai"  # Optional
 ```
 
 ### Client Initialization
@@ -238,7 +238,7 @@ Shadai(
     name: str = None,
     temporal: bool = False,
     api_key: str = None,
-    base_url: str = "http://localhost",
+    base_url: str = "https://apiv2.shadai.ai",
     timeout: int = 30
 )
 ```

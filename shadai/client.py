@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from .exceptions import (
     AuthenticationError,
+    BatchSizeLimitExceededError,
     ConnectionError,
     ServerError,
     create_exception_from_error_response,
@@ -40,7 +41,7 @@ class ShadaiClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "http://localhost",
+        base_url: str = "https://apiv2.shadai.ai",
         timeout: int = 600,
     ) -> None:
         """
@@ -166,6 +167,7 @@ class ShadaiClient:
         Raises:
             ServerError: If server returns an error
             ConnectionError: If connection fails
+            BatchSizeLimitExceededError: If request body is too large
         """
         request = {
             "jsonrpc": "2.0",
@@ -183,12 +185,30 @@ class ShadaiClient:
                 ) as response:
                     if response.status == 401:
                         raise AuthenticationError("Invalid API key")
-                    response.raise_for_status()
+
+                    # Handle HTTP errors by reading response body first
+                    if response.status >= 400:
+                        error_body = await self._handle_http_error(response=response)
+                        if error_body:
+                            raise error_body
+                        # If no structured error, raise generic ServerError
+                        raise ServerError(
+                            message=f"Server returned HTTP {response.status}",
+                            status_code=response.status,
+                        )
+
                     data = await response.json()
 
                     # Check for JSON-RPC error format
                     if "error" in data:
                         error = data["error"]
+                        # Check for structured error data
+                        error_data = error.get("data", {})
+                        if error_data and "error_code" in error_data:
+                            exception = self._create_exception_from_jsonrpc_error(
+                                error=error
+                            )
+                            raise exception
                         raise ServerError(
                             message=f"{error.get('message', 'Unknown error')} "
                             f"(code: {error.get('code')})"
@@ -206,6 +226,77 @@ class ShadaiClient:
                     return data
         except aiohttp.ClientError as e:
             raise ConnectionError(f"Request failed: {e}") from e
+
+    async def _handle_http_error(
+        self,
+        response: aiohttp.ClientResponse,
+    ) -> Optional[Exception]:
+        """
+        Handle HTTP error responses by reading and parsing error body.
+
+        Args:
+            response: The HTTP response with error status
+
+        Returns:
+            Appropriate exception or None if cannot parse
+        """
+        try:
+            data = await response.json()
+
+            # Check for JSON-RPC error format
+            if "error" in data:
+                return self._create_exception_from_jsonrpc_error(error=data["error"])
+
+            return None
+        except (json.JSONDecodeError, aiohttp.ContentTypeError):
+            # Response is not JSON, try to read text
+            try:
+                text = await response.text()
+                logger.warning(f"Non-JSON error response: {text[:500]}")
+            except Exception:
+                pass
+            return None
+
+    def _create_exception_from_jsonrpc_error(
+        self,
+        error: Dict[str, Any],
+    ) -> Exception:
+        """
+        Create appropriate exception from JSON-RPC error response.
+
+        Args:
+            error: The error object from JSON-RPC response
+
+        Returns:
+            Appropriate exception instance
+        """
+        error_data = error.get("data", {})
+        error_code = error_data.get("error_code", "")
+        message = error.get("message", "Unknown error")
+        context = error_data.get("context", {})
+
+        # Handle specific error codes
+        if error_code == "BATCH_SIZE_LIMIT_EXCEEDED":
+            max_size = context.get("max_batch_size_mb", 110)
+            context.get("suggestion", "")
+            return BatchSizeLimitExceededError(
+                current_size=0,  # Unknown at this point
+                max_size=max_size,
+                size_unit="MB",
+            )
+
+        # Create exception from standardized error data
+        if error_code:
+            return create_exception_from_error_response(
+                error_data={
+                    "code": error_code,
+                    "message": message,
+                    "context": context,
+                }
+            )
+
+        # Default to ServerError
+        return ServerError(message=message)
 
     async def call_tool(
         self,
@@ -291,6 +382,12 @@ class ShadaiClient:
         Yields:
             Text chunks from the tool response
 
+        Raises:
+            AuthenticationError: If API key is invalid
+            BatchSizeLimitExceededError: If request body is too large
+            ServerError: If server returns an error
+            ConnectionError: If connection fails
+
         Examples:
             >>> async for chunk in client.stream_tool(
             ...     tool_name="shadai_query",
@@ -319,7 +416,16 @@ class ShadaiClient:
                 ) as response:
                     if response.status == 401:
                         raise AuthenticationError("Invalid API key")
-                    response.raise_for_status()
+
+                    # Handle HTTP errors by reading response body first
+                    if response.status >= 400:
+                        error_body = await self._handle_http_error(response=response)
+                        if error_body:
+                            raise error_body
+                        raise ServerError(
+                            message=f"Server returned HTTP {response.status}",
+                            status_code=response.status,
+                        )
 
                     async for line in response.content:
                         line_str = line.decode("utf-8").strip()
