@@ -416,6 +416,53 @@ class FileSizeLimitExceededError(PlanLimitExceededError):
         self.context["filename"] = filename
 
 
+class IngestionFailedError(ShadaiError):
+    """Raised when file ingestion fails completely with all files rejected.
+
+    This error provides clear feedback when all files in an ingestion batch
+    fail due to the same reason (e.g., plan limits exceeded).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        failed_count: int,
+        error_type: str,
+        failed_files: Optional[list] = None,
+        suggestion: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Initialize ingestion failed error.
+
+        Args:
+            message: Human-readable error message
+            failed_count: Number of files that failed
+            error_type: Type of error (e.g., "knowledge_points_limit", "file_size_limit")
+            failed_files: Optional list of failed file details
+            suggestion: Optional suggestion for resolution
+            context: Additional context for debugging
+        """
+        self.failed_count = failed_count
+        self.failed_files = failed_files or []
+
+        full_context = context or {}
+        full_context.update(
+            {
+                "failed_count": failed_count,
+                "error_type": error_type,
+            }
+        )
+
+        super().__init__(
+            message=message,
+            error_code="INGESTION_FAILED",
+            error_type=error_type,
+            context=full_context,
+            is_retriable=False,
+            suggestion=suggestion,
+        )
+
+
 # ============================================================================
 # External Service Errors
 # ============================================================================
@@ -650,6 +697,7 @@ ERROR_CODE_MAP = {
     # Processing
     "FILE_PARSING_ERROR": FileParsingError,
     "CHUNK_INGESTION_ERROR": ChunkIngestionError,
+    "INGESTION_FAILED": IngestionFailedError,
     # System
     "CONFIGURATION_ERROR": ConfigurationError,
     "DATABASE_ERROR": DatabaseError,
