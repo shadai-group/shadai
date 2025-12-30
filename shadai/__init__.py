@@ -66,6 +66,7 @@ from .exceptions import (
     AuthenticationError,
     # Authorization & Limits
     AuthorizationError,
+    BatchSizeLimitExceededError,
     ChunkIngestionError,
     ConfigurationError,
     ConnectionError,
@@ -74,6 +75,8 @@ from .exceptions import (
     FileNotFoundError,
     FileParsingError,
     FileSizeLimitExceededError,
+    # Ingestion
+    IngestionFailedError,
     InvalidAPIKeyError,
     InvalidFileTypeError,
     InvalidParameterError,
@@ -163,6 +166,9 @@ __all__ = [
     "PlanLimitExceededError",
     "KnowledgePointsLimitExceededError",
     "FileSizeLimitExceededError",
+    "BatchSizeLimitExceededError",
+    # Exceptions - Ingestion
+    "IngestionFailedError",
     # Exceptions - External Services
     "ExternalServiceError",
     "LLMProviderError",
